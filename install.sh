@@ -7,7 +7,7 @@ TARGET_DIR="/usr/local/bin"
 TARGET_CMD="gu"
 
 # Remote script location
-SCRIPT_URL="https://raw.githubusercontent.com/YOUNGmaxer/git-user/main/git-user.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/hnrobert/git-user/main/git-user.sh"
 
 # Configuration file location
 CONFIG_FILE="$HOME/.git_user_profiles"
