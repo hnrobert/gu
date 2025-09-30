@@ -38,12 +38,12 @@ jobs:
           draft: false
           prerelease: false
 
-      - name: Upload git-user.sh
+      - name: Upload gu.sh
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./git-user.sh
-          asset_name: git-user
+          asset_path: ./gu.sh
+          asset_name: gu
           asset_content_type: text/x-sh
