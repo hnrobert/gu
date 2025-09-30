@@ -1,4 +1,4 @@
-# gu（git-user）
+# **gu**（git-user）
 
 [English](#english) | [中文](#中文)
 
@@ -11,7 +11,7 @@
 Run the following commands to install `gu`:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/hnrobert/git-user/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/hnrobert/gu/main/install.sh | bash
 ```
 
 ### Usage
@@ -37,6 +37,11 @@ gu show
 - To switch: `gu switch` and select a profile.
 - To list: `gu list`
 
+### Contributors
+
+- Forked from: [YOUNGmaxer/git-user](https://github.com/YOUNGmaxer/git-user)
+- [hnrobert](https://github.com/hnrobert)
+
 ## 中文
 
 `gu` 是一个命令行工具，用于在单个机器上管理多个 Git 用户配置文件，便于在个人和工作项目之间切换用户信息。
@@ -46,7 +51,7 @@ gu show
 运行以下命令安装 `gu`：
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/hnrobert/git-user/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/hnrobert/gu/main/install.sh | bash
 ```
 
 ### 使用
@@ -71,3 +76,8 @@ gu show
 
 - 切换：`gu switch` 并选择配置文件。
 - 列出：`gu list`
+
+### 贡献者名单
+
+- Fork 自: [YOUNGmaxer/git-user](https://github.com/YOUNGmaxer/git-user)
+- [hnrobert](https://github.com/hnrobert)

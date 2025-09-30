@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# git-user: A tool to manage Git user and email information
+# gu (git-user): A tool to manage Git user and email information
 
 CONFIG_FILE="$HOME/.git_user_profiles"
 
@@ -244,7 +244,7 @@ delete_user_profile() {
 }
 
 show_help() {
-  echo "Usage: git-user [COMMAND] [OPTIONS] [ALIAS]"
+  echo "Usage: gu [COMMAND] [OPTIONS] [ALIAS]"
   echo ""
   echo "A tool to manage Git user and email information."
   echo ""
@@ -262,16 +262,16 @@ show_help() {
   echo "  -u, --user ALIAS                              Specify user profile alias."
   echo ""
   echo "Examples:"
-  echo "  git-user set -g                               Set global Git user name and email interactively."
-  echo "  git-user set --global                         Same as above using long form."
-  echo "  git-user set -u hnrobert                      Switch to 'hnrobert' profile or create it if not exists."
-  echo "  git-user set hnrobert                         Same as above without -u flag."
-  echo "  git-user set -g workuser                      Switch to 'workuser' profile globally."
-  echo "  git-user add work                             Add a new Git user profile with alias 'work'."
-  echo "  git-user add -u work                          Same as above using short form."
-  echo "  git-user delete old                           Delete the 'old' user profile."
-  echo "  git-user delete -u old                        Same as above using short form."
-  echo "  git-user list                                 List all Git user profiles."
+  echo "  gu set -g                                     Set global Git user name and email interactively."
+  echo "  gu set --global                               Same as above using long form."
+  echo "  gu set -u hnrobert                            Switch to 'hnrobert' profile or create it if not exists."
+  echo "  gu set hnrobert                               Same as above without -u flag."
+  echo "  gu set -g workuser                            Switch to 'workuser' profile globally."
+  echo "  gu add work                                   Add a new Git user profile with alias 'work'."
+  echo "  gu add -u work                                Same as above using short form."
+  echo "  gu delete prev                                Delete the 'prev' user profile."
+  echo "  gu delete -u prev                             Same as above using short form."
+  echo "  gu list                                       List all Git user profiles."
 }
 
 # Main program
