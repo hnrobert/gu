@@ -10,15 +10,55 @@ highlight_text() {
 
 set_user_info() {
   local scope="local"
-  if [[ "$1" == "--global" ]]; then
-    scope="global"
-    shift
+  local user_alias=""
+  
+  # Create config file if it doesn't exist
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    touch "$CONFIG_FILE"
+  fi
+  
+  # Parse arguments for --global and --user
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --global)
+        scope="global"
+        shift
+        ;;
+      --user)
+        user_alias="$2"
+        shift 2
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  # If --user specified, try to use existing profile
+  if [[ -n "$user_alias" ]]; then
+    if grep -q "^$user_alias " "$CONFIG_FILE" 2>/dev/null; then
+      local selected_profile=$(grep "^$user_alias " "$CONFIG_FILE")
+      IFS=' ' read -r alias name email <<<"$selected_profile"
+      git config --$scope user.name "$name"
+      git config --$scope user.email "$email"
+      echo "Set to profile: Alias: $alias, Name: $name, Email: $email (Scope: $scope)"
+      return
+    else
+      echo "Profile '$user_alias' not found. You can add it now:"
+    fi
   fi
 
-  read -p "Enter user name: " name
-  read -p "Enter email: " email
-  read -p "Enter alias (default: $name): " alias
-  alias=${alias:-$name}
+  # Interactive mode or new profile creation
+  if [[ -n "$user_alias" ]]; then
+    read -p "Enter user name: " name
+    read -p "Enter email: " email
+    alias="$user_alias"
+  else
+    read -p "Enter user name: " name
+    read -p "Enter email: " email
+    read -p "Enter alias (default: $name): " alias
+    alias=${alias:-$name}
+  fi
 
   git config --$scope user.name "$name"
   git config --$scope user.email "$email"
@@ -38,7 +78,12 @@ add_user_profile() {
   local name="$2"
   local email="$3"
 
-  if grep -q "^$alias " "$CONFIG_FILE"; then
+  # Create config file if it doesn't exist
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    touch "$CONFIG_FILE"
+  fi
+
+  if grep -q "^$alias " "$CONFIG_FILE" 2>/dev/null; then
     echo "Profile '$alias' already exists."
     return
   fi
@@ -47,8 +92,62 @@ add_user_profile() {
   echo "Added profile '$alias' with Name: $name, Email: $email"
 }
 
+# Function to add a new user profile with --user support
+add_profile_interactive() {
+  local user_alias=""
+  
+  # Parse arguments - first check for --user flag, then for direct alias argument
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --user)
+        user_alias="$2"
+        shift 2
+        ;;
+      *)
+        # If no --user flag, treat first argument as alias
+        if [[ -z "$user_alias" ]]; then
+          user_alias="$1"
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  # Create config file if it doesn't exist
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    touch "$CONFIG_FILE"
+  fi
+
+  if [[ -n "$user_alias" ]]; then
+    if grep -q "^$user_alias " "$CONFIG_FILE" 2>/dev/null; then
+      echo "Profile '$user_alias' already exists."
+      return
+    fi
+    read -p "Enter user name: " name
+    read -p "Enter email: " email
+    alias="$user_alias"
+  else
+    read -p "Enter user name: " name
+    read -p "Enter email: " email
+    read -p "Enter alias: " alias
+  fi
+  
+  add_user_profile "$alias" "$name" "$email"
+}
+
 # Function to list profiles and highlight the current user
 list_profiles() {
+  # Create config file if it doesn't exist
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    touch "$CONFIG_FILE"
+  fi
+  
+  # Check if file is empty
+  if [[ ! -s "$CONFIG_FILE" ]]; then
+    echo "No profiles available."
+    return
+  fi
+
   local current_name=$(git config user.name)
   local current_email=$(git config user.email)
 
@@ -66,10 +165,61 @@ list_profiles() {
   done <"$CONFIG_FILE"
 }
 
-# Interactive function to delete a profile
+# Interactive function to delete a profile with --user support
 delete_user_profile() {
+  local user_alias=""
+  
+  # Create config file if it doesn't exist
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    touch "$CONFIG_FILE"
+  fi
+  
+  # Check if file is empty
+  if [[ ! -s "$CONFIG_FILE" ]]; then
+    echo "No profiles available to delete."
+    return
+  fi
+  
+  # Parse arguments - first check for --user flag, then for direct alias argument
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --user)
+        user_alias="$2"
+        shift 2
+        ;;
+      *)
+        # If no --user flag, treat first argument as alias
+        if [[ -z "$user_alias" ]]; then
+          user_alias="$1"
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  if [[ -n "$user_alias" ]]; then
+    if grep -q "^$user_alias " "$CONFIG_FILE" 2>/dev/null; then
+      if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "/^$user_alias /d" "$CONFIG_FILE"
+      else
+        sed -i "/^$user_alias /d" "$CONFIG_FILE"
+      fi
+      echo "Profile '$user_alias' deleted."
+    else
+      echo "Profile '$user_alias' not found."
+    fi
+    return
+  fi
+
+  # Interactive mode
   list_profiles
-  local profiles=($(awk '{print $1}' "$CONFIG_FILE"))
+  
+  # Check again if file is empty after listing (in case list_profiles shows "No profiles available")
+  if [[ ! -s "$CONFIG_FILE" ]]; then
+    return
+  fi
+  
+  local profiles=($(awk '{print $1}' "$CONFIG_FILE" 2>/dev/null))
 
   read -p "Enter the number of the profile to delete: " choice
   local valid_choice_regex='^[0-9]+$'
@@ -80,49 +230,40 @@ delete_user_profile() {
 
   # Construct the pattern to avoid partial matches
   local profile_to_delete="${profiles[$choice - 1]}"
-  sed -i "/^$profile_to_delete /d" "$CONFIG_FILE"
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    sed -i '' "/^$profile_to_delete /d" "$CONFIG_FILE"
+  else
+    sed -i "/^$profile_to_delete /d" "$CONFIG_FILE"
+  fi
   echo "Profile deleted."
 }
 
-# Interactive function to switch the current user profile
-switch_user_info() {
-  list_profiles
-  local profiles=($(awk '{print $1}' "$CONFIG_FILE"))
-
-  read -p "Enter the number of the profile to switch to: " choice
-  local valid_choice_regex='^[0-9]+$'
-  if ! [[ $choice =~ $valid_choice_regex ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#profiles[@]}" ]; then
-    echo "Invalid selection."
-    return
-  fi
-
-  local selected_alias="${profiles[$choice - 1]}"
-  local selected_profile=$(grep "^$selected_alias " "$CONFIG_FILE")
-  IFS=' ' read -r alias name email <<<"$selected_profile"
-  git config user.name "$name"
-  git config user.email "$email"
-  echo "Switched to profile: Alias: $alias, Name: $name, Email: $email."
-}
-
 show_help() {
-  echo "Usage: git-user [COMMAND] [--global]"
+  echo "Usage: git-user [COMMAND] [OPTIONS] [ALIAS]"
   echo ""
   echo "A tool to manage Git user and email information."
   echo ""
   echo "Commands:"
-  echo "  set [--global]              Set user info for the current directory or globally."
-  echo "  show                        Show the current user info."
-  echo "  add                         Interactively add a new user profile with a unique alias."
-  echo "  delete                      Interactively delete an existing user profile."
-  echo "  switch                      Interactively switch between user profiles."
-  echo "  list                        List all available user profiles with the current one highlighted."
-  echo "  --help                      Show this help message and exit."
+  echo "  set [--global] [--user ALIAS]   Set user info for the current directory or globally."
+  echo "                                  Use --user to set to an existing profile or create new one."
+  echo "  show                            Show the current user info."
+  echo "  add [--user ALIAS | ALIAS]      Add a new user profile with a unique alias."
+  echo "  delete [--user ALIAS | ALIAS]   Delete an existing user profile."
+  echo "  list                            List all available user profiles with the current one highlighted."
+  echo "  --help                          Show this help message and exit."
+  echo ""
+  echo "Options:"
+  echo "  --global                        Apply settings globally instead of locally."
+  echo "  --user ALIAS                    Specify user profile alias."
   echo ""
   echo "Examples:"
-  echo "  git-user set --global       Set global Git user name and email."
-  echo "  git-user switch             Interactively switch to another Git user profile."
-  echo "  git-user add                Add a new Git user profile."
-  echo "  git-user list               List all Git user profiles."
+  echo "  git-user set --global           Set global Git user name and email interactively."
+  echo "  git-user set --user john        Switch to 'john' profile or create it if not exists."
+  echo "  git-user add work               Add a new Git user profile with alias 'work'."
+  echo "  git-user add --user work        Same as above using --user flag."
+  echo "  git-user delete old             Delete the 'old' user profile."
+  echo "  git-user delete --user old      Same as above using --user flag."
+  echo "  git-user list                   List all Git user profiles."
 }
 
 # Main program
@@ -131,22 +272,19 @@ case "$1" in
   show_help
   ;;
 set)
-  set_user_info "$2"
+  shift
+  set_user_info "$@"
   ;;
 show)
   show_user_info
   ;;
 add)
-  read -p "Enter user name: " name
-  read -p "Enter email: " email
-  read -p "Enter alias: " alias
-  add_user_profile "$alias" "$name" "$email"
+  shift
+  add_profile_interactive "$@"
   ;;
 delete)
-  delete_user_profile
-  ;;
-switch)
-  switch_user_info "$2"
+  shift
+  delete_user_profile "$@"
   ;;
 list)
   list_profiles
