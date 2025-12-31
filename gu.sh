@@ -5,8 +5,13 @@
 GU_DIR="$HOME/.gu"
 CONFIG_FILE="$GU_DIR/profiles"
 VERSION="v1.1.0"
-UPDATE_URL="https://raw.githubusercontent.com/hnrobert/gu/main/gu.sh"
 LAST_SELECTED_ALIAS=""
+
+# Remote script locations
+REPO_BASE_URL="https://raw.githubusercontent.com/hnrobert/gu"
+BRANCH="develop"
+SCRIPT_URL="$REPO_BASE_URL/$BRANCH/gu.sh"
+GUTEMP_URL="$REPO_BASE_URL/$BRANCH/gutemp.sh"
 
 highlight_text() {
   echo "$(tput setaf 2)$(tput bold)$1$(tput sgr0)"
@@ -38,22 +43,42 @@ show_version() {
 }
 
 upgrade_gu() {
-  local tmp_file
-  tmp_file=$(mktemp) || {
+  local tmp_gu
+  tmp_gu=$(mktemp) || {
     echo "Failed to create a temporary file for download."
     return 1
   }
 
-  echo "Downloading latest gu from $UPDATE_URL ..."
-  if ! curl -fsSL "$UPDATE_URL" -o "$tmp_file"; then
+  local tmp_gutemp
+  tmp_gutemp=$(mktemp) || {
+    echo "Failed to create a temporary file for gutemp download."
+    rm -f "$tmp_gu"
+    return 1
+  }
+
+  echo "Downloading latest gu from $SCRIPT_URL ..."
+  if ! curl -fsSL "$SCRIPT_URL" -o "$tmp_gu"; then
     echo "Download failed."
-    rm -f "$tmp_file"
+    rm -f "$tmp_gu" "$tmp_gutemp"
     return 1
   fi
 
-  chmod +x "$tmp_file" || {
+  echo "Downloading latest gutemp from $GUTEMP_URL ..."
+  if ! curl -fsSL "$GUTEMP_URL" -o "$tmp_gutemp"; then
+    echo "Download of gutemp failed."
+    rm -f "$tmp_gu" "$tmp_gutemp"
+    return 1
+  fi
+
+  chmod +x "$tmp_gu" || {
     echo "Failed to mark the downloaded script as executable."
-    rm -f "$tmp_file"
+    rm -f "$tmp_gu" "$tmp_gutemp"
+    return 1
+  }
+
+  chmod +x "$tmp_gutemp" || {
+    echo "Failed to mark the downloaded gutemp as executable."
+    rm -f "$tmp_gu" "$tmp_gutemp"
     return 1
   }
 
@@ -63,14 +88,31 @@ upgrade_gu() {
     target_path="$0"
   fi
 
+  local target_gutemp
+  target_gutemp=$(command -v gutemp 2>/dev/null)
+  if [[ -z "$target_gutemp" ]]; then
+    target_gutemp="/usr/local/bin/gutemp"
+  fi
+
   echo "Installing update to $target_path ..."
-  if mv "$tmp_file" "$target_path" 2>/dev/null; then
+  if mv "$tmp_gu" "$target_path" 2>/dev/null; then
     echo "Update successful."
-  elif sudo mv "$tmp_file" "$target_path"; then
+  elif sudo mv "$tmp_gu" "$target_path"; then
     echo "Update successful (used sudo)."
   else
     echo "Failed to install update. Check permissions."
-    rm -f "$tmp_file"
+    rm -f "$tmp_gu" "$tmp_gutemp"
+    return 1
+  fi
+
+  echo "Installing gutemp update to $target_gutemp ..."
+  if mv "$tmp_gutemp" "$target_gutemp" 2>/dev/null; then
+    echo "gutemp update successful."
+  elif sudo mv "$tmp_gutemp" "$target_gutemp"; then
+    echo "gutemp update successful (used sudo)."
+  else
+    echo "Failed to install gutemp update. Check permissions."
+    rm -f "$tmp_gutemp"
     return 1
   fi
 
@@ -82,12 +124,17 @@ set_user_info() {
   local scope="local"
   local user_alias=""
   local create_new=0
+  local apply_git=1
 
   ensure_storage
 
   # Parse arguments for --global and --user
   while [[ $# -gt 0 ]]; do
     case $1 in
+    --no-apply)
+      apply_git=0
+      shift
+      ;;
     --global | -g)
       scope="global"
       shift
@@ -154,8 +201,10 @@ set_user_info() {
     if grep -q "^$user_alias|" "$CONFIG_FILE" 2>/dev/null; then
       local selected_profile=$(grep "^$user_alias|" "$CONFIG_FILE")
       IFS='|' read -r alias name email <<<"$selected_profile"
-      git config --$scope user.name "$name"
-      git config --$scope user.email "$email"
+      if ((apply_git == 1)); then
+        git config --$scope user.name "$name"
+        git config --$scope user.email "$email"
+      fi
       LAST_SELECTED_ALIAS="$alias"
       echo "Set to profile: Alias: $alias, Name: $name, Email: $email (Scope: $scope)"
       return
@@ -335,7 +384,7 @@ config_auth_key() {
   # Determine alias if not provided
   if [[ -z "$alias" ]]; then
     echo "No alias provided. Please choose or create one."
-    set_user_info
+    set_user_info --no-apply
     if [[ -z "$LAST_SELECTED_ALIAS" ]]; then
       echo "Alias selection failed."
       return 1
@@ -386,14 +435,14 @@ config_auth_key() {
     return 1
   fi
 
+  # Remove any existing command="..." in options before inserting ours
+  if [[ -n "$options" ]]; then
+    options=$(printf '%s' "$options" | sed 's/command="[^"]*"//g; s/^,*//; s/,*$//; s/,,*/,/g')
+  fi
+
   local new_line=""
   if [[ -n "$options" ]]; then
-    if [[ "$options" == *command="*"* ]]; then
-      options=$(printf '%s' "$options" | sed 's/command="[^"]*"/'"$command_value"'/')
-    else
-      options="$command_value,$options"
-    fi
-    new_line="$options $key_type $key_body"
+    new_line="$command_value,$options $key_type $key_body"
   else
     new_line="$command_value $key_type $key_body"
   fi
