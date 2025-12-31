@@ -2,16 +2,12 @@
 
 # gu (git-user): A tool to manage Git user and email information
 
+REPO_BASE_URL="https://raw.githubusercontent.com/hnrobert/gu"
+VERSION="v1.2.0"
 GU_DIR="$HOME/.gu"
 CONFIG_FILE="$GU_DIR/profiles"
-VERSION="v1.1.0"
 LAST_SELECTED_ALIAS=""
 
-# Remote script locations
-REPO_BASE_URL="https://raw.githubusercontent.com/hnrobert/gu"
-BRANCH="develop"
-SCRIPT_URL="$REPO_BASE_URL/$BRANCH/gu.sh"
-GUTEMP_URL="$REPO_BASE_URL/$BRANCH/gutemp.sh"
 
 highlight_text() {
   echo "$(tput setaf 2)$(tput bold)$1$(tput sgr0)"
@@ -43,6 +39,24 @@ show_version() {
 }
 
 upgrade_gu() {
+  local target_branch="main"
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+    -d | --develop)
+      target_branch="develop"
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1"
+      return 1
+      ;;
+    esac
+  done
+
+  local script_url="$REPO_BASE_URL/$target_branch/gu.sh"
+  local gutemp_url="$REPO_BASE_URL/$target_branch/gutemp.sh"
+
   local tmp_gu
   tmp_gu=$(mktemp) || {
     echo "Failed to create a temporary file for download."
@@ -56,15 +70,15 @@ upgrade_gu() {
     return 1
   }
 
-  echo "Downloading latest gu from $SCRIPT_URL ..."
-  if ! curl -fsSL "$SCRIPT_URL" -o "$tmp_gu"; then
+  echo "Downloading latest gu from $script_url ..."
+  if ! curl -fsSL "$script_url" -o "$tmp_gu"; then
     echo "Download failed."
     rm -f "$tmp_gu" "$tmp_gutemp"
     return 1
   fi
 
-  echo "Downloading latest gutemp from $GUTEMP_URL ..."
-  if ! curl -fsSL "$GUTEMP_URL" -o "$tmp_gutemp"; then
+  echo "Downloading latest gutemp from $gutemp_url ..."
+  if ! curl -fsSL "$gutemp_url" -o "$tmp_gutemp"; then
     echo "Download of gutemp failed."
     rm -f "$tmp_gu" "$tmp_gutemp"
     return 1
@@ -731,7 +745,7 @@ show_help() {
   echo "  delete [-u|--user ALIAS | ALIAS]              Delete an existing user profile."
   echo "  update [-u|--user ALIAS | ALIAS]              Update profile alias/name/email in the config file (create on request)."
   echo "  config -k|--auth-key [ALIAS]                  Bind an SSH authorized_key entry to a gu alias via forced command."
-  echo "  upgrade                                       Download and install the latest version of gu."
+  echo "  upgrade [-d|--develop]                        Download and install the latest version of gu (default main, -d uses develop)."
   echo "  help | -h | --help                            Show this help message and exit."
   echo "  version | -v | --version                      Show the current tool version."
   echo ""
@@ -747,7 +761,7 @@ show_help() {
   echo "  gu update                                     Update an existing profile interactively."
   echo "  gu update -u workuser                         Update the 'workuser' profile interactively."
   echo "  gu config -k workuser                         Bind an SSH key to the 'workuser' gu alias."
-  echo "  gu upgrade                                    Upgrade gu to the latest version."
+  echo "  gu upgrade -d                                 Upgrade gu from the develop branch (omit -d for main)."
 }
 
 # Main program
@@ -777,7 +791,8 @@ list)
   list_profiles
   ;;
 upgrade)
-  upgrade_gu
+  shift
+  upgrade_gu "$@"
   ;;
 update)
   shift

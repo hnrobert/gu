@@ -9,7 +9,7 @@ TARGET_GUTEMP="gutemp"
 
 # Remote script locations
 REPO_BASE_URL="https://raw.githubusercontent.com/hnrobert/gu"
-BRANCH="develop"
+BRANCH="main"
 SCRIPT_URL="$REPO_BASE_URL/$BRANCH/gu.sh"
 GUTEMP_URL="$REPO_BASE_URL/$BRANCH/gutemp.sh"
 
