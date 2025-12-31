@@ -322,7 +322,12 @@ update_user_info() {
 
 config_auth_key() {
   local alias="$1"
+  local alias_provided=0
   local auth_keys="$HOME/.ssh/authorized_keys"
+
+  if [[ -n "$alias" ]]; then
+    alias_provided=1
+  fi
 
   mkdir -p "$HOME/.ssh"
   ensure_storage
@@ -381,6 +386,82 @@ config_auth_key() {
 
   local selected_line="${selectable[$((choice - 1))]}"
 
+  # Recompose the selected line with enforced command option
+  local options=""
+  local key_type=""
+  local key_body=""
+  local comment=""
+
+  local first token_rest
+  first=$(printf '%s' "$selected_line" | awk '{print $1}')
+  token_rest=$(printf '%s' "$selected_line" | cut -d' ' -f2-)
+
+  if [[ "$first" == ssh-* || "$first" == ecdsa-* || "$first" == sk-* ]]; then
+    key_type="$first"
+    key_body=$(printf '%s' "$token_rest" | awk '{print $1}')
+    comment=$(printf '%s' "$token_rest" | cut -d' ' -f2-)
+  else
+    options="$first"
+    key_type=$(printf '%s' "$token_rest" | awk '{print $1}')
+    key_body=$(printf '%s' "$token_rest" | awk '{print $2}')
+    comment=$(printf '%s' "$token_rest" | cut -d' ' -f3-)
+  fi
+
+  if [[ -z "$key_type" || -z "$key_body" ]]; then
+    echo "Failed to parse the selected key."
+    return 1
+  fi
+
+  local had_command=0
+  local existing_command=""
+  if [[ -n "$options" && "$options" =~ command=\"([^\"]*)\" ]]; then
+    had_command=1
+    existing_command="${BASH_REMATCH[1]}"
+  fi
+
+  if [[ $had_command -eq 1 && $alias_provided -eq 0 ]]; then
+    echo "Selected key already has command=\"$existing_command\"."
+    read -p "Delete existing command or overwrite with gutemp alias? [d/o]: " command_choice
+    if [[ "$command_choice" =~ ^[Dd]$ ]]; then
+      if [[ -n "$options" ]]; then
+        options=$(printf '%s' "$options" | sed 's/command="[^"]*"//g; s/^,*//; s/,*$//; s/,,*/,/g')
+      fi
+      local cleaned_line=""
+      if [[ -n "$options" ]]; then
+        cleaned_line="$options $key_type $key_body"
+      else
+        cleaned_line="$key_type $key_body"
+      fi
+      if [[ -n "$comment" ]]; then
+        cleaned_line="$cleaned_line $comment"
+      fi
+
+      local tmp_file
+      tmp_file=$(mktemp) || {
+        echo "Failed to create temp file."
+        return 1
+      }
+
+      for line in "${lines[@]}"; do
+        if [[ "${line}" == "${selected_line}" ]]; then
+          echo "$cleaned_line" >>"$tmp_file"
+        else
+          echo "$line" >>"$tmp_file"
+        fi
+      done
+
+      mv "$tmp_file" "$auth_keys"
+      chmod 600 "$auth_keys"
+      echo "Removed existing command= from selected key; no alias binding applied."
+      return 0
+    elif [[ "$command_choice" =~ ^[Oo]$ ]]; then
+      : # continue to overwrite path
+    else
+      echo "No changes made."
+      return 1
+    fi
+  fi
+
   # Determine alias if not provided
   if [[ -z "$alias" ]]; then
     echo "No alias provided. Please choose or create one."
@@ -408,32 +489,6 @@ config_auth_key() {
   fi
 
   local command_value="command=\"$gutemp_cmd $alias\""
-
-  # Recompose the selected line with enforced command option
-  local options=""
-  local key_type=""
-  local key_body=""
-  local comment=""
-
-  local first token_rest
-  first=$(printf '%s' "$selected_line" | awk '{print $1}')
-  token_rest=$(printf '%s' "$selected_line" | cut -d' ' -f2-)
-
-  if [[ "$first" == ssh-* || "$first" == ecdsa-* || "$first" == sk-* ]]; then
-    key_type="$first"
-    key_body=$(printf '%s' "$token_rest" | awk '{print $1}')
-    comment=$(printf '%s' "$token_rest" | cut -d' ' -f2-)
-  else
-    options="$first"
-    key_type=$(printf '%s' "$token_rest" | awk '{print $1}')
-    key_body=$(printf '%s' "$token_rest" | awk '{print $2}')
-    comment=$(printf '%s' "$token_rest" | cut -d' ' -f3-)
-  fi
-
-  if [[ -z "$key_type" || -z "$key_body" ]]; then
-    echo "Failed to parse the selected key."
-    return 1
-  fi
 
   # Remove any existing command="..." in options before inserting ours
   if [[ -n "$options" ]]; then
