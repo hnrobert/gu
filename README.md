@@ -16,6 +16,12 @@ Run the following commands to install `gu`:
 curl -sSL https://raw.githubusercontent.com/hnrobert/gu/main/install.sh | bash
 ```
 
+> To install from the development branch, use the `develop` branch and add the `-d` flag during installation:
+>
+> ```bash
+> curl -sSL https://raw.githubusercontent.com/hnrobert/gu/develop/install.sh | bash -s -- -d
+> ```
+
 ### Usage
 
 #### Commands (English)
