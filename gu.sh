@@ -361,26 +361,31 @@ config_auth_key() {
     local key_body=""
     local comment=""
 
-    local first token_rest
-    first=$(printf '%s' "$working" | awk '{print $1}')
-    token_rest=$(printf '%s' "$working" | cut -d' ' -f2-)
-
-    if [[ "$first" == ssh-* || "$first" == ecdsa-* || "$first" == sk-* ]]; then
-      key_type="$first"
-      key_body=$(printf '%s' "$token_rest" | awk '{print $1}')
-      comment=$(printf '%s' "$token_rest" | cut -d' ' -f2-)
-    else
-      options="$first"
-      key_type=$(printf '%s' "$token_rest" | awk '{print $1}')
-      key_body=$(printf '%s' "$token_rest" | awk '{print $2}')
-      comment=$(printf '%s' "$token_rest" | cut -d' ' -f3-)
+    if [[ "$working" =~ ^([^#]*?)\s*(ssh-[^[:space:]]+|ecdsa-[^[:space:]]+|sk-[^[:space:]]+)\s+(.+)$ ]]; then
+      options=$(printf '%s' "${BASH_REMATCH[1]}" | sed 's/[[:space:]]*$//')
+      key_type="${BASH_REMATCH[2]}"
+      local rest="${BASH_REMATCH[3]}"
+      key_body=$(printf '%s' "$rest" | awk '{print $1}')
+      comment=$(printf '%s' "$rest" | cut -d' ' -f2-)
     fi
 
     [[ -z "$key_type" || -z "$key_body" ]] && continue
 
+    local assigned_alias=""
+    if [[ -n "$options" && "$options" =~ command=\"([^\"]*)\" ]]; then
+      local cmd_value="${BASH_REMATCH[1]}"
+      if [[ "$cmd_value" =~ gutemp[[:space:]]+([^[:space:]]+) ]]; then
+        assigned_alias="${BASH_REMATCH[1]}"
+      fi
+    fi
+
     local prefix=${key_body:0:5}
     local display_comment=${comment:-<no-comment>}
-    echo "$idx) $key_type ${prefix}... $display_comment"
+    local display_line="$idx) $key_type ${prefix}... $display_comment"
+    if [[ -n "$assigned_alias" ]]; then
+      display_line="$display_line -> $(highlight_text "$assigned_alias")"
+    fi
+    echo "$display_line"
     selectable+=("$line")
     ((idx++))
   done <"$auth_keys"
@@ -406,19 +411,12 @@ config_auth_key() {
   local key_body=""
   local comment=""
 
-  local first token_rest
-  first=$(printf '%s' "$selected_line" | awk '{print $1}')
-  token_rest=$(printf '%s' "$selected_line" | cut -d' ' -f2-)
-
-  if [[ "$first" == ssh-* || "$first" == ecdsa-* || "$first" == sk-* ]]; then
-    key_type="$first"
-    key_body=$(printf '%s' "$token_rest" | awk '{print $1}')
-    comment=$(printf '%s' "$token_rest" | cut -d' ' -f2-)
-  else
-    options="$first"
-    key_type=$(printf '%s' "$token_rest" | awk '{print $1}')
-    key_body=$(printf '%s' "$token_rest" | awk '{print $2}')
-    comment=$(printf '%s' "$token_rest" | cut -d' ' -f3-)
+  if [[ "$selected_line" =~ ^([^#]*?)\s*(ssh-[^[:space:]]+|ecdsa-[^[:space:]]+|sk-[^[:space:]]+)\s+(.+)$ ]]; then
+    options=$(printf '%s' "${BASH_REMATCH[1]}" | sed 's/[[:space:]]*$//')
+    key_type="${BASH_REMATCH[2]}"
+    local rest="${BASH_REMATCH[3]}"
+    key_body=$(printf '%s' "$rest" | awk '{print $1}')
+    comment=$(printf '%s' "$rest" | cut -d' ' -f2-)
   fi
 
   if [[ -z "$key_type" || -z "$key_body" ]]; then
