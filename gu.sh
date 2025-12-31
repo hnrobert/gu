@@ -6,6 +6,7 @@ REPO_BASE_URL="https://raw.githubusercontent.com/hnrobert/gu"
 VERSION="v1.2.0"
 GU_DIR="$HOME/.gu"
 CONFIG_FILE="$GU_DIR/profiles"
+REMOTE_FILE="$GU_DIR/remote_hosts"
 LAST_SELECTED_ALIAS=""
 
 highlight_text() {
@@ -16,6 +17,9 @@ ensure_storage() {
   mkdir -p "$GU_DIR"
   if [[ ! -f "$CONFIG_FILE" ]]; then
     touch "$CONFIG_FILE"
+  fi
+  if [[ ! -f "$REMOTE_FILE" ]]; then
+    touch "$REMOTE_FILE"
   fi
 }
 
@@ -572,15 +576,261 @@ config_auth_key() {
   echo "Bound alias '$alias' to selected key via command='$gutemp_cmd $alias'."
 }
 
+config_remote_host() {
+  local remote_alias="$1"
+  local ssh_config_path="$2"
+
+  ensure_storage
+
+  if [[ -z "$ssh_config_path" ]]; then
+    ssh_config_path="$HOME/.ssh/config"
+  fi
+
+  if [[ ! -f "$ssh_config_path" ]]; then
+    echo "SSH config not found at $ssh_config_path."
+    return 1
+  fi
+
+  local hosts=()
+  local host_aliases=()
+  local current_hosts=()
+  local current_alias=""
+
+  parse_remote_alias_from_rc() {
+    local rc_line="$1"
+    local last=""
+    read -r -a rc_words <<<"$rc_line"
+    for idx in "${!rc_words[@]}"; do
+      local word="${rc_words[$idx]}"
+      if [[ "$word" == "gutemp" || "$word" == */gutemp ]]; then
+        local nxt="${rc_words[$((idx + 1))]:-}"
+        if [[ -n "$nxt" ]]; then
+          nxt=${nxt%%;*}
+          last="$nxt"
+        fi
+      fi
+    done
+    echo "$last"
+  }
+
+  finish_host_block() {
+    if ((${#current_hosts[@]} > 0)); then
+      for h in "${current_hosts[@]}"; do
+        hosts+=("$h")
+        host_aliases+=("$current_alias")
+      done
+    fi
+    current_hosts=()
+    current_alias=""
+  }
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
+
+    if [[ "$line" =~ ^[[:space:]]*[Hh]ost[[:space:]]+(.+)$ ]]; then
+      finish_host_block
+      local host_list="${BASH_REMATCH[1]}"
+      read -r -a tokens <<<"$host_list"
+      for h in "${tokens[@]}"; do
+        if [[ "$h" == *"*"* || "$h" == *"?"* || "$h" == "!"* ]]; then
+          continue
+        fi
+        current_hosts+=("$h")
+      done
+      continue
+    fi
+
+    if ((${#current_hosts[@]} > 0)) && [[ "$line" =~ ^[[:space:]]*RemoteCommand[[:space:]]+(.*)$ ]]; then
+      local rc_val="${BASH_REMATCH[1]}"
+      current_alias=$(parse_remote_alias_from_rc "$rc_val")
+    fi
+  done <"$ssh_config_path"
+  finish_host_block
+
+  if ((${#hosts[@]} == 0)); then
+    echo "No Host entries found in $ssh_config_path."
+    return 1
+  fi
+
+  echo "Available SSH hosts:"
+  local i=1
+  for idx in "${!hosts[@]}"; do
+    local h="${hosts[$idx]}"
+    local ha="${host_aliases[$idx]}"
+    if [[ -n "$ha" ]]; then
+      echo "$((idx + 1))) $h -> $(highlight_text "$ha")"
+    else
+      echo "$((idx + 1))) $h"
+    fi
+    ((i++))
+  done
+
+  local choice
+  read -p "Select host number to bind: " choice
+  local valid_num_regex='^[0-9]+$'
+  if ! [[ $choice =~ $valid_num_regex ]] || ((choice < 1 || choice > ${#hosts[@]})); then
+    echo "Invalid selection."
+    return 1
+  fi
+
+  local selected_host="${hosts[$((choice - 1))]}"
+
+  # Detect existing RemoteCommand within the target Host block
+  local had_remote=0
+  local existing_remote=""
+  local existing_alias=""
+  {
+    local in_block=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if [[ "$line" =~ ^[[:space:]]*[Hh]ost[[:space:]]+(.+)$ ]]; then
+        in_block=0
+        local host_list="${BASH_REMATCH[1]}"
+        read -r -a tokens <<<"$host_list"
+        for h in "${tokens[@]}"; do
+          if [[ "$h" == "$selected_host" ]]; then
+            in_block=1
+            break
+          fi
+        done
+      elif [[ $in_block -eq 1 && "$line" =~ ^[[:space:]]*RemoteCommand[[:space:]]+(.*)$ ]]; then
+        had_remote=1
+        existing_remote="${BASH_REMATCH[1]}"
+        existing_alias=$(parse_remote_alias_from_rc "$existing_remote")
+        break
+      fi
+    done
+  } <"$ssh_config_path"
+
+  local action="overwrite"
+  if [[ $had_remote -eq 1 ]]; then
+    echo "Selected host already has RemoteCommand: $existing_remote"
+    read -p "Delete existing RemoteCommand or overwrite with gutemp alias? [d/o]: " rc_choice
+    if [[ "$rc_choice" =~ ^[Dd]$ ]]; then
+      action="delete"
+    elif [[ "$rc_choice" =~ ^[Oo]$ ]]; then
+      action="overwrite"
+    else
+      echo "No changes made."
+      return 1
+    fi
+  fi
+
+  if [[ $had_remote -eq 1 && $action == "delete" ]]; then
+    # No alias needed for delete path; perform rewrite without inserting and exit
+    remote_alias="${remote_alias:-$existing_alias}"
+  fi
+
+  if [[ $action == "overwrite" && -z "$remote_alias" ]]; then
+    read -p "Enter alias to map to host '$selected_host': " remote_alias
+    if [[ -z "$remote_alias" ]]; then
+      echo "Alias is required."
+      return 1
+    fi
+  fi
+
+  # Build RemoteCommand that safely checks for gutemp on remote
+  local remote_command_value="if command -v gutemp >/dev/null 2>&1; then gutemp $remote_alias; else echo 'gutemp not found on remote; skipping' >&2; fi; exec \$SHELL -l"
+
+  # Rewrite ssh config to insert/replace RemoteCommand and RequestTTY inside the target Host block
+  local tmp_cfg
+  tmp_cfg=$(mktemp) || {
+    echo "Failed to create temp file."
+    return 1
+  }
+
+  local in_target=0
+  local inserted=0
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^[[:space:]]*[Hh]ost[[:space:]]+(.+)$ ]]; then
+      # If we are leaving the target block without inserting, add now (only when overwriting)
+      if [[ $in_target -eq 1 && $inserted -eq 0 && "$action" == "overwrite" ]]; then
+        echo "  RemoteCommand $remote_command_value" >>"$tmp_cfg"
+        echo "  RequestTTY yes" >>"$tmp_cfg"
+        echo "" >>"$tmp_cfg"
+        inserted=1
+      fi
+
+      in_target=0
+      local host_list="${BASH_REMATCH[1]}"
+      read -r -a tokens <<<"$host_list"
+      for h in "${tokens[@]}"; do
+        if [[ "$h" == "$selected_host" ]]; then
+          in_target=1
+          break
+        fi
+      done
+
+      echo "$line" >>"$tmp_cfg"
+      continue
+    fi
+
+    if [[ $in_target -eq 1 ]]; then
+      # Skip existing RemoteCommand/RequestTTY to avoid duplicates or to delete
+      if [[ "$line" =~ ^[[:space:]]*RemoteCommand[[:space:]] ]]; then
+        continue
+      fi
+      if [[ "$line" =~ ^[[:space:]]*RequestTTY[[:space:]] ]]; then
+        continue
+      fi
+      # When overwriting, drop blank lines inside the block to keep insertion flush
+      if [[ "$action" == "overwrite" && (-z "$line" || "$line" =~ ^[[:space:]]*$) ]]; then
+        continue
+      fi
+    fi
+
+    echo "$line" >>"$tmp_cfg"
+  done <"$ssh_config_path"
+
+  # If file ended while still inside target host and we haven't inserted, append
+  if [[ $in_target -eq 1 && $inserted -eq 0 && "$action" == "overwrite" ]]; then
+    echo "  RemoteCommand $remote_command_value" >>"$tmp_cfg"
+    echo "  RequestTTY yes" >>"$tmp_cfg"
+    echo "" >>"$tmp_cfg"
+  fi
+
+  mv "$tmp_cfg" "$ssh_config_path"
+
+  local tmp_file
+  tmp_file=$(mktemp) || {
+    echo "Failed to create temp file."
+    return 1
+  }
+
+  # Remove any existing entries with same alias or host to avoid duplicates
+  awk -F'|' -v a="$remote_alias" -v h="$selected_host" '{ if($1!=a && $2!=h) print }' "$REMOTE_FILE" >"$tmp_file"
+  mv "$tmp_file" "$REMOTE_FILE"
+
+  if [[ "$action" == "overwrite" ]]; then
+    echo "$remote_alias|$selected_host|$ssh_config_path" >>"$REMOTE_FILE"
+    echo "Mapped remote alias '$remote_alias' to Host '$selected_host' (config: $ssh_config_path)."
+  else
+    echo "Removed existing RemoteCommand from Host '$selected_host'; no new mapping stored."
+  fi
+}
+
 config_command() {
   local mode=""
   local alias=""
+  local ssh_config_path=""
 
   while [[ $# -gt 0 ]]; do
     case $1 in
     -k | --auth-key)
       mode="authkey"
       shift
+      ;;
+    -r | --remote-host)
+      mode="remotehost"
+      shift
+      if [[ $# -gt 0 && "$1" != -* ]]; then
+        alias="$1"
+        shift
+      fi
+      ;;
+    -c | --config)
+      ssh_config_path="$2"
+      shift 2
       ;;
     -u | --user)
       alias="$2"
@@ -599,8 +849,11 @@ config_command() {
   authkey)
     config_auth_key "$alias"
     ;;
+  remotehost)
+    config_remote_host "$alias" "$ssh_config_path"
+    ;;
   *)
-    echo "Unsupported config command. Use: gu config -k [ALIAS]"
+    echo "Unsupported config command. Use: gu config -k [ALIAS] or gu config -r [ALIAS] [-c SSH_CONFIG]"
     return 1
     ;;
   esac
@@ -778,6 +1031,7 @@ show_help() {
   echo "  delete [-u|--user ALIAS | ALIAS]              Delete an existing user profile."
   echo "  update [-u|--user ALIAS | ALIAS]              Update profile alias/name/email in the config file (create on request)."
   echo "  config -k|--auth-key [ALIAS]                  Bind an SSH authorized_key entry to a gu alias via forced command."
+  echo "  config -r|--remote-host [ALIAS] [-c PATH]     Map an SSH config Host to a gu remote alias (optional SSH config path)."
   echo "  upgrade [-d|--develop]                        Download and install the latest version of gu (default main, -d uses develop)."
   echo "  help | -h | --help                            Show this help message and exit."
   echo "  version | -v | --version                      Show the current tool version."
@@ -794,6 +1048,7 @@ show_help() {
   echo "  gu update                                     Update an existing profile interactively."
   echo "  gu update -u workuser                         Update the 'workuser' profile interactively."
   echo "  gu config -k workuser                         Bind an SSH key to the 'workuser' gu alias."
+  echo "  gu config -r myremote -c ~/.ssh/config        Map SSH Host to remote alias 'myremote' using the given config file."
   echo "  gu upgrade -d                                 Upgrade gu from the develop branch (omit -d for main)."
 }
 
