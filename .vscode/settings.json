@@ -8,6 +8,8 @@
   },
   "prettier.tabWidth": 2,
   "cSpell.words": [
+    "EOBODY",
+    "esac",
     "maxer",
     "setaf",
     "workuser"
