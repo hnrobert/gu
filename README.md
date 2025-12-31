@@ -16,26 +16,30 @@ curl -sSL https://raw.githubusercontent.com/hnrobert/gu/main/install.sh | bash
 
 ### Usage
 
-#### Set User Information
+#### Commands (English)
 
-- For the current directory: `gu set`
-- Globally: `gu set --global`
+- `gu show` — Show the current Git user name and email.
+- `gu list` — List all profiles and highlight the current one.
+- `gu add [-u|--user ALIAS | ALIAS]` — Add a profile with the given alias (prompts for details).
+- `gu set [-g|--global] [-u|--user ALIAS | ALIAS]` — Switch to an existing profile and apply it; if missing, optionally create a new one. Interactive mode lists profiles with an "Add another profile" option.
+- `gu delete [-u|--user ALIAS | ALIAS]` — Delete an existing profile (interactive selection supported).
+- `gu update [-u|--user ALIAS | ALIAS]` — Update a profile's alias/name/email in the config file (creates on request).
+- `gu upgrade` — Download and install the latest version of `gu`.
+- `gu help` — Show help.
+- `gu version` — Show current version.
 
-#### Show Current User
+#### Examples
 
 ```bash
+gu list
 gu show
+gu add work
+gu set -g                # set globally (interactive if no alias provided)
+gu set -u hnrobert       # switch to an existing profile (or create if missing)
+gu update -u workuser    # update alias/name/email for an existing profile
+gu delete prev           # delete a profile
+gu upgrade               # self-update the tool
 ```
-
-#### Add/Delete User Profiles
-
-- To add: `gu add` and follow the prompts.
-- To delete: `gu delete` and select the profile to be deleted.
-
-#### Switch/List User Profiles
-
-- To switch: `gu switch` and select a profile.
-- To list: `gu list`
 
 ### Contributors
 
@@ -56,26 +60,30 @@ curl -sSL https://raw.githubusercontent.com/hnrobert/gu/main/install.sh | bash
 
 ### 使用
 
-#### 设置用户信息
+#### 命令（中文）
 
-- 当前目录：`gu set`
-- 全局：`gu set --global`
+- `gu show` — 显示当前 Git 用户名和邮箱。
+- `gu list` — 列出所有配置文件并高亮当前配置。
+- `gu add [-u|--user ALIAS | ALIAS]` — 添加指定别名的配置文件（交互式输入信息）。
+- `gu set [-g|--global] [-u|--user ALIAS | ALIAS]` — 切换到已有配置并应用；若不存在可选择创建。无别名时会先列出配置并提供“Add another profile”选项。
+- `gu delete [-u|--user ALIAS | ALIAS]` — 删除已有配置（支持交互选择）。
+- `gu update [-u|--user ALIAS | ALIAS]` — 更新配置文件中的别名/姓名/邮箱（按需创建）。
+- `gu upgrade` — 下载并安装最新版本。
+- `gu help` — 查看帮助。
+- `gu version` — 查看当前版本。
 
-#### 显示当前用户
+#### 示例
 
 ```bash
+gu list
 gu show
+gu add work
+gu set -g                # 全局设置（无别名时交互选择或创建）
+gu set -u hnrobert       # 切换到已有配置（不存在时可创建）
+gu update -u workuser    # 更新已有配置的别名/姓名/邮箱
+gu delete prev           # 删除配置
+gu upgrade               # 升级工具
 ```
-
-#### 添加/删除用户配置文件
-
-- 添加：`gu add` 并按提示操作。
-- 删除：`gu delete` 并选择要删除的配置文件。
-
-#### 切换/列出用户配置文件
-
-- 切换：`gu switch` 并选择配置文件。
-- 列出：`gu list`
 
 ### 贡献者名单
 
