@@ -70,14 +70,22 @@ upgrade_gu() {
   }
 
   echo "Downloading latest gu from $script_url ..."
-  if ! curl -fsSL -H "Cache-Control: no-cache" "$script_url" -o "$tmp_gu"; then
+  if ! curl -fsSL \
+    -H "Cache-Control: no-cache, no-store, must-revalidate" \
+    -H "Pragma: no-cache" \
+    -H "Expires: 0" \
+    "$script_url" -o "$tmp_gu"; then
     echo "Download failed."
     rm -f "$tmp_gu" "$tmp_gutemp"
     return 1
   fi
 
   echo "Downloading latest gutemp from $gutemp_url ..."
-  if ! curl -fsSL -H "Cache-Control: no-cache" "$gutemp_url" -o "$tmp_gutemp"; then
+  if ! curl -fsSL \
+    -H "Cache-Control: no-cache, no-store, must-revalidate" \
+    -H "Pragma: no-cache" \
+    -H "Expires: 0" \
+    "$gutemp_url" -o "$tmp_gutemp"; then
     echo "Download of gutemp failed."
     rm -f "$tmp_gu" "$tmp_gutemp"
     return 1

@@ -35,7 +35,11 @@ CONFIG_FILE="$GU_DIR/profiles"
 echo "Installing $TARGET_CMD from branch '$BRANCH'"
 
 # Download the script using curl
-curl -H "Cache-Control: no-cache" -o "$TARGET_CMD" "$SCRIPT_URL" || {
+curl \
+  -H "Cache-Control: no-cache, no-store, must-revalidate" \
+  -H "Pragma: no-cache" \
+  -H "Expires: 0" \
+  -o "$TARGET_CMD" "$SCRIPT_URL" || {
   echo "Failed to download $TARGET_CMD from $SCRIPT_URL."
   exit 1
 }
@@ -45,7 +49,11 @@ mkdir -p "$GU_DIR"
 touch "$CONFIG_FILE"
 
 # Download gutemp helper
-curl -H "Cache-Control: no-cache" -o "$TARGET_GUTEMP" "$GUTEMP_URL" || {
+curl \
+  -H "Cache-Control: no-cache, no-store, must-revalidate" \
+  -H "Pragma: no-cache" \
+  -H "Expires: 0" \
+  -o "$TARGET_GUTEMP" "$GUTEMP_URL" || {
   echo "Failed to download $TARGET_GUTEMP from $GUTEMP_URL."
   exit 1
 }
