@@ -2,12 +2,21 @@
 
 # gu (git-user): A tool to manage Git user and email information
 
-CONFIG_FILE="$HOME/.git_user_profiles"
+GU_DIR="$HOME/.gu"
+CONFIG_FILE="$GU_DIR/profiles"
 VERSION="v1.1.0"
 UPDATE_URL="https://raw.githubusercontent.com/hnrobert/gu/main/gu.sh"
+LAST_SELECTED_ALIAS=""
 
 highlight_text() {
   echo "$(tput setaf 2)$(tput bold)$1$(tput sgr0)"
+}
+
+ensure_storage() {
+  mkdir -p "$GU_DIR"
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    touch "$CONFIG_FILE"
+  fi
 }
 
 default_alias_from_name() {
@@ -74,10 +83,7 @@ set_user_info() {
   local user_alias=""
   local create_new=0
 
-  # Create config file if it doesn't exist
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    touch "$CONFIG_FILE"
-  fi
+  ensure_storage
 
   # Parse arguments for --global and --user
   while [[ $# -gt 0 ]]; do
@@ -150,6 +156,7 @@ set_user_info() {
       IFS='|' read -r alias name email <<<"$selected_profile"
       git config --$scope user.name "$name"
       git config --$scope user.email "$email"
+      LAST_SELECTED_ALIAS="$alias"
       echo "Set to profile: Alias: $alias, Name: $name, Email: $email (Scope: $scope)"
       return
     else
@@ -176,16 +183,14 @@ set_user_info() {
     echo "User information set to Name: $name, Email: $email (Scope: $scope)"
 
     add_user_profile "$alias" "$name" "$email"
+    LAST_SELECTED_ALIAS="$alias"
   fi
 }
 
 update_user_info() {
   local user_alias=""
 
-  # Create config file if it doesn't exist
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    touch "$CONFIG_FILE"
-  fi
+  ensure_storage
 
   # Parse arguments for --user
   while [[ $# -gt 0 ]]; do
@@ -266,6 +271,190 @@ update_user_info() {
   fi
 }
 
+config_auth_key() {
+  local alias="$1"
+  local auth_keys="$HOME/.ssh/authorized_keys"
+
+  mkdir -p "$HOME/.ssh"
+  ensure_storage
+  touch "$auth_keys"
+
+  local lines=()
+  local selectable=()
+  local idx=1
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    lines+=("$line")
+    [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
+
+    local working="$line"
+    local options=""
+    local key_type=""
+    local key_body=""
+    local comment=""
+
+    local first token_rest
+    first=$(printf '%s' "$working" | awk '{print $1}')
+    token_rest=$(printf '%s' "$working" | cut -d' ' -f2-)
+
+    if [[ "$first" == ssh-* || "$first" == ecdsa-* || "$first" == sk-* ]]; then
+      key_type="$first"
+      key_body=$(printf '%s' "$token_rest" | awk '{print $1}')
+      comment=$(printf '%s' "$token_rest" | cut -d' ' -f2-)
+    else
+      options="$first"
+      key_type=$(printf '%s' "$token_rest" | awk '{print $1}')
+      key_body=$(printf '%s' "$token_rest" | awk '{print $2}')
+      comment=$(printf '%s' "$token_rest" | cut -d' ' -f3-)
+    fi
+
+    [[ -z "$key_type" || -z "$key_body" ]] && continue
+
+    local prefix=${key_body:0:5}
+    local display_comment=${comment:-<no-comment>}
+    echo "$idx) $key_type ${prefix}... $display_comment"
+    selectable+=("$line")
+    ((idx++))
+  done <"$auth_keys"
+
+  if ((${#selectable[@]} == 0)); then
+    echo "No keys found in $auth_keys."
+    return 1
+  fi
+
+  local choice
+  read -p "Select key number to bind: " choice
+  local valid_num_regex='^[0-9]+$'
+  if ! [[ $choice =~ $valid_num_regex ]] || ((choice < 1 || choice > ${#selectable[@]})); then
+    echo "Invalid selection."
+    return 1
+  fi
+
+  local selected_line="${selectable[$((choice - 1))]}"
+
+  # Determine alias if not provided
+  if [[ -z "$alias" ]]; then
+    echo "No alias provided. Please choose or create one."
+    set_user_info
+    if [[ -z "$LAST_SELECTED_ALIAS" ]]; then
+      echo "Alias selection failed."
+      return 1
+    fi
+    alias="$LAST_SELECTED_ALIAS"
+  fi
+
+  if ! grep -q "^$alias|" "$CONFIG_FILE" 2>/dev/null; then
+    echo "Alias '$alias' not found in $CONFIG_FILE. Run 'gu set -u $alias' to create it first."
+    return 1
+  fi
+
+  local gutemp_cmd
+  gutemp_cmd=$(command -v gutemp 2>/dev/null || true)
+  if [[ -z "$gutemp_cmd" ]]; then
+    gutemp_cmd="/usr/local/bin/gutemp"
+  fi
+  if [[ ! -x "$gutemp_cmd" ]]; then
+    echo "gutemp not found or not executable at $gutemp_cmd. Reinstall and try again."
+    return 1
+  fi
+
+  local command_value="command=\"$gutemp_cmd $alias\""
+
+  # Recompose the selected line with enforced command option
+  local options=""
+  local key_type=""
+  local key_body=""
+  local comment=""
+
+  local first token_rest
+  first=$(printf '%s' "$selected_line" | awk '{print $1}')
+  token_rest=$(printf '%s' "$selected_line" | cut -d' ' -f2-)
+
+  if [[ "$first" == ssh-* || "$first" == ecdsa-* || "$first" == sk-* ]]; then
+    key_type="$first"
+    key_body=$(printf '%s' "$token_rest" | awk '{print $1}')
+    comment=$(printf '%s' "$token_rest" | cut -d' ' -f2-)
+  else
+    options="$first"
+    key_type=$(printf '%s' "$token_rest" | awk '{print $1}')
+    key_body=$(printf '%s' "$token_rest" | awk '{print $2}')
+    comment=$(printf '%s' "$token_rest" | cut -d' ' -f3-)
+  fi
+
+  if [[ -z "$key_type" || -z "$key_body" ]]; then
+    echo "Failed to parse the selected key."
+    return 1
+  fi
+
+  local new_line=""
+  if [[ -n "$options" ]]; then
+    if [[ "$options" == *command="*"* ]]; then
+      options=$(printf '%s' "$options" | sed 's/command="[^"]*"/'"$command_value"'/')
+    else
+      options="$command_value,$options"
+    fi
+    new_line="$options $key_type $key_body"
+  else
+    new_line="$command_value $key_type $key_body"
+  fi
+
+  if [[ -n "$comment" ]]; then
+    new_line="$new_line $comment"
+  fi
+
+  local tmp_file
+  tmp_file=$(mktemp) || {
+    echo "Failed to create temp file."
+    return 1
+  }
+
+  for line in "${lines[@]}"; do
+    if [[ "${line}" == "${selected_line}" ]]; then
+      echo "$new_line" >>"$tmp_file"
+    else
+      echo "$line" >>"$tmp_file"
+    fi
+  done
+
+  mv "$tmp_file" "$auth_keys"
+  chmod 600 "$auth_keys"
+  echo "Bound alias '$alias' to selected key via command='$gutemp_cmd $alias'."
+}
+
+config_command() {
+  local mode=""
+  local alias=""
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+    -k | --auth-key)
+      mode="authkey"
+      shift
+      ;;
+    -u | --user)
+      alias="$2"
+      shift 2
+      ;;
+    *)
+      if [[ -z "$alias" ]]; then
+        alias="$1"
+      fi
+      shift
+      ;;
+    esac
+  done
+
+  case "$mode" in
+  authkey)
+    config_auth_key "$alias"
+    ;;
+  *)
+    echo "Unsupported config command. Use: gu config -k [ALIAS]"
+    return 1
+    ;;
+  esac
+}
+
 show_user_info() {
   name=$(git config user.name)
   email=$(git config user.email)
@@ -277,10 +466,7 @@ add_user_profile() {
   local name="$2"
   local email="$3"
 
-  # Create config file if it doesn't exist
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    touch "$CONFIG_FILE"
-  fi
+  ensure_storage
 
   if grep -q "^$alias|" "$CONFIG_FILE" 2>/dev/null; then
     echo "Profile '$alias' already exists."
@@ -312,10 +498,7 @@ add_profile_interactive() {
     esac
   done
 
-  # Create config file if it doesn't exist
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    touch "$CONFIG_FILE"
-  fi
+  ensure_storage
 
   if [[ -n "$user_alias" ]]; then
     if grep -q "^$user_alias|" "$CONFIG_FILE" 2>/dev/null; then
@@ -336,10 +519,7 @@ add_profile_interactive() {
 
 # Function to list profiles and highlight the current user
 list_profiles() {
-  # Create config file if it doesn't exist
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    touch "$CONFIG_FILE"
-  fi
+  ensure_storage
 
   # Check if file is empty
   if [[ ! -s "$CONFIG_FILE" ]]; then
@@ -368,10 +548,7 @@ list_profiles() {
 delete_user_profile() {
   local user_alias=""
 
-  # Create config file if it doesn't exist
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    touch "$CONFIG_FILE"
-  fi
+  ensure_storage
 
   # Check if file is empty
   if [[ ! -s "$CONFIG_FILE" ]]; then
@@ -449,6 +626,7 @@ show_help() {
   echo "  set [-g|--global] [-u|--user ALIAS | ALIAS]   Switch to an existing profile and apply it. If missing, optionally create."
   echo "  delete [-u|--user ALIAS | ALIAS]              Delete an existing user profile."
   echo "  update [-u|--user ALIAS | ALIAS]              Update profile alias/name/email in the config file (create on request)."
+  echo "  config -k|--auth-key [ALIAS]                  Bind an SSH authorized_key entry to a gu alias via forced command."
   echo "  upgrade                                       Download and install the latest version of gu."
   echo "  help | -h | --help                            Show this help message and exit."
   echo "  version | -v | --version                      Show the current tool version."
@@ -463,7 +641,8 @@ show_help() {
   echo "  gu set -g workuser                            Switch to 'workuser' profile globally."
   echo "  gu delete prev                                Delete the 'prev' user profile."
   echo "  gu update                                     Update an existing profile interactively."
-  echo "  gu update -u workuser                         Update the 'workuser' profile interact"
+  echo "  gu update -u workuser                         Update the 'workuser' profile interactively."
+  echo "  gu config -k workuser                         Bind an SSH key to the 'workuser' gu alias."
   echo "  gu upgrade                                    Upgrade gu to the latest version."
 }
 
@@ -499,6 +678,10 @@ upgrade)
 update)
   shift
   update_user_info "$@"
+  ;;
+config)
+  shift
+  config_command "$@"
   ;;
 *)
   echo "Invalid command. Showing help:"
