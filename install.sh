@@ -63,13 +63,6 @@ sudo mv "$TARGET_GUTEMP" "$TARGET_DIR/$TARGET_GUTEMP" || {
 # Check if successfully installed
 if [ -f "$TARGET_DIR/$TARGET_CMD" ]; then
   echo "Installation successful. You can now use '$TARGET_CMD' command anywhere."
-
-  # Create the configuration file if it does not exist
-  if [ ! -f "$CONFIG_FILE" ]; then
-    touch "$CONFIG_FILE"
-  else
-    echo "Configuration file already exists at $CONFIG_FILE"
-  fi
 else
   echo "Installation failed."
 fi
