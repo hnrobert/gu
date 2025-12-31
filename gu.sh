@@ -729,7 +729,8 @@ config_remote_host() {
   fi
 
   # Build RemoteCommand that safely checks for gutemp on remote
-  local remote_command_value="if command -v gutemp >/dev/null 2>&1; then gutemp $remote_alias; else echo 'gutemp not found on remote; skipping' >&2; fi; exec \$SHELL -l"
+  # Clear SSH_ORIGINAL_COMMAND so gutemp doesn't try to exec the RemoteCommand string
+  local remote_command_value="if command -v gutemp >/dev/null 2>&1; then env -u SSH_ORIGINAL_COMMAND gutemp $remote_alias; else echo 'gutemp not found on remote; skipping' >&2; fi; exec \$SHELL -l"
 
   # Rewrite ssh config to insert/replace RemoteCommand and RequestTTY inside the target Host block
   local tmp_cfg

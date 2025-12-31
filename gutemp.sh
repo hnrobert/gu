@@ -37,6 +37,11 @@ export GIT_COMMITTER_NAME="$user"
 export GIT_COMMITTER_EMAIL="$email"
 export EMAIL="$email"
 
+# If SSH_ORIGINAL_COMMAND is actually the RemoteCommand wrapper (contains gutemp), ignore it.
+if [[ -n "$SSH_ORIGINAL_COMMAND" && "$SSH_ORIGINAL_COMMAND" == *gutemp* ]]; then
+  unset SSH_ORIGINAL_COMMAND
+fi
+
 # Preserve original command if present; otherwise start an interactive shell.
 cmd=${SSH_ORIGINAL_COMMAND:-${SHELL:-/bin/sh}}
 exec "$cmd"
