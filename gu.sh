@@ -360,12 +360,11 @@ config_auth_key() {
     local key_body=""
     local comment=""
 
-    if [[ "$working" =~ ^([^#]*?)\s*(ssh-[^[:space:]]+|ecdsa-[^[:space:]]+|sk-[^[:space:]]+)\s+(.+)$ ]]; then
+    if [[ "$working" =~ ^([[:print:]]*?)\s*(ssh-[^[:space:]]+|ecdsa-[^[:space:]]+|sk-[^[:space:]]+)\s+([^[:space:]]+)([[:space:]]+(.*))?$ ]]; then
       options=$(printf '%s' "${BASH_REMATCH[1]}" | sed 's/[[:space:]]*$//')
       key_type="${BASH_REMATCH[2]}"
-      local rest="${BASH_REMATCH[3]}"
-      key_body=$(printf '%s' "$rest" | awk '{print $1}')
-      comment=$(printf '%s' "$rest" | cut -d' ' -f2-)
+      key_body="${BASH_REMATCH[3]}"
+      comment="${BASH_REMATCH[5]}"
     fi
 
     [[ -z "$key_type" || -z "$key_body" ]] && continue
@@ -373,8 +372,8 @@ config_auth_key() {
     local assigned_alias=""
     if [[ -n "$options" && "$options" =~ command=\"([^\"]*)\" ]]; then
       local cmd_value="${BASH_REMATCH[1]}"
-      if [[ "$cmd_value" =~ gutemp[[:space:]]+([^[:space:]]+) ]]; then
-        assigned_alias="${BASH_REMATCH[1]}"
+      if [[ "$cmd_value" =~ (^|[[:space:]])gutemp[[:space:]]+([^[:space:]]+)([[:space:]]|$) ]]; then
+        assigned_alias="${BASH_REMATCH[2]}"
       fi
     fi
 
@@ -410,12 +409,11 @@ config_auth_key() {
   local key_body=""
   local comment=""
 
-  if [[ "$selected_line" =~ ^([^#]*?)\s*(ssh-[^[:space:]]+|ecdsa-[^[:space:]]+|sk-[^[:space:]]+)\s+(.+)$ ]]; then
+  if [[ "$selected_line" =~ ^([[:print:]]*?)\s*(ssh-[^[:space:]]+|ecdsa-[^[:space:]]+|sk-[^[:space:]]+)\s+([^[:space:]]+)([[:space:]]+(.*))?$ ]]; then
     options=$(printf '%s' "${BASH_REMATCH[1]}" | sed 's/[[:space:]]*$//')
     key_type="${BASH_REMATCH[2]}"
-    local rest="${BASH_REMATCH[3]}"
-    key_body=$(printf '%s' "$rest" | awk '{print $1}')
-    comment=$(printf '%s' "$rest" | cut -d' ' -f2-)
+    key_body="${BASH_REMATCH[3]}"
+    comment="${BASH_REMATCH[5]}"
   fi
 
   if [[ -z "$key_type" || -z "$key_body" ]]; then
