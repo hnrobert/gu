@@ -3,7 +3,8 @@
 # gu (git-user): A tool to manage Git user and email information
 
 CONFIG_FILE="$HOME/.git_user_profiles"
-VERSION="v1.0.0"
+VERSION="v1.1.0"
+UPDATE_URL="https://raw.githubusercontent.com/hnrobert/gu/develop/gu.sh"
 
 highlight_text() {
   echo "$(tput setaf 2)$(tput bold)$1$(tput sgr0)"
@@ -11,6 +12,47 @@ highlight_text() {
 
 show_version() {
   echo "gu version: $VERSION"
+}
+
+upgrade_gu() {
+  local tmp_file
+  tmp_file=$(mktemp) || {
+    echo "Failed to create a temporary file for download."
+    return 1
+  }
+
+  echo "Downloading latest gu from $UPDATE_URL ..."
+  if ! curl -fsSL "$UPDATE_URL" -o "$tmp_file"; then
+    echo "Download failed."
+    rm -f "$tmp_file"
+    return 1
+  fi
+
+  chmod +x "$tmp_file" || {
+    echo "Failed to mark the downloaded script as executable."
+    rm -f "$tmp_file"
+    return 1
+  }
+
+  local target_path
+  target_path=$(command -v gu 2>/dev/null)
+  if [[ -z "$target_path" ]]; then
+    target_path="$0"
+  fi
+
+  echo "Installing update to $target_path ..."
+  if mv "$tmp_file" "$target_path" 2>/dev/null; then
+    echo "Update successful."
+  elif sudo mv "$tmp_file" "$target_path"; then
+    echo "Update successful (used sudo)."
+  else
+    echo "Failed to install update. Check permissions."
+    rm -f "$tmp_file"
+    return 1
+  fi
+
+  echo "Updated version:"
+  "$target_path" --version
 }
 
 set_user_info() {
@@ -44,7 +86,7 @@ set_user_info() {
     esac
   done
 
-  # If --user specified, try to use existing profile
+  # If --user specified, try to use existing profile; only prompt to create when missing
   if [[ -n "$user_alias" ]]; then
     if grep -q "^$user_alias|" "$CONFIG_FILE" 2>/dev/null; then
       local selected_profile=$(grep "^$user_alias|" "$CONFIG_FILE")
@@ -54,16 +96,18 @@ set_user_info() {
       echo "Set to profile: Alias: $alias, Name: $name, Email: $email (Scope: $scope)"
       return
     else
-      echo "Profile '$user_alias' not found. You can add it now:"
+      echo "Profile '$user_alias' not found."
+      read -p "Create a new profile named '$user_alias'? [y/N]: " create_choice
+      if [[ ! "$create_choice" =~ ^[Yy]$ ]]; then
+        echo "No changes made."
+        return 1
+      fi
+      read -p "Enter git user name: " name
+      read -p "Enter email: " email
+      alias="$user_alias"
     fi
-  fi
-
-  # Interactive mode or new profile creation
-  if [[ -n "$user_alias" ]]; then
-    read -p "Enter git user name: " name
-    read -p "Enter email: " email
-    alias="$user_alias"
   else
+    # No alias provided: fall back to interactive creation
     read -p "Enter git user name: " name
     read -p "Enter email: " email
     read -p "Enter alias (default: $name): " alias
@@ -75,6 +119,72 @@ set_user_info() {
   echo "User information set to Name: $name, Email: $email (Scope: $scope)"
 
   add_user_profile "$alias" "$name" "$email"
+}
+
+update_user_info() {
+  local user_alias=""
+
+  # Create config file if it doesn't exist
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    touch "$CONFIG_FILE"
+  fi
+
+  # Parse arguments for --user
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+    --user | -u)
+      user_alias="$2"
+      shift 2
+      ;;
+    *)
+      if [[ -z "$user_alias" && -n "$1" ]]; then
+        user_alias="$1"
+      fi
+      shift
+      ;;
+    esac
+  done
+
+  if [[ -z "$user_alias" ]]; then
+    read -p "Enter alias to update: " user_alias
+    if [[ -z "$user_alias" ]]; then
+      echo "No alias provided."
+      return 1
+    fi
+  fi
+
+  if grep -q "^$user_alias|" "$CONFIG_FILE" 2>/dev/null; then
+    local selected_profile=$(grep "^$user_alias|" "$CONFIG_FILE")
+    IFS='|' read -r alias name email <<<"$selected_profile"
+    read -p "Enter git user name [$name]: " new_name
+    new_name=${new_name:-$name}
+    read -p "Enter email [$email]: " new_email
+    new_email=${new_email:-$email}
+
+    local tmp_file
+    tmp_file=$(mktemp) || {
+      echo "Failed to create a temporary file for update."
+      return 1
+    }
+
+    if awk -F'|' -v alias="$alias" -v new_name="$new_name" -v new_email="$new_email" 'BEGIN{OFS="|"} {if($1==alias){$2=new_name;$3=new_email} print}' "$CONFIG_FILE" >"$tmp_file" && mv "$tmp_file" "$CONFIG_FILE"; then
+      echo "Profile '$alias' updated to Name: $new_name, Email: $new_email"
+    else
+      echo "Failed to update profile."
+      rm -f "$tmp_file"
+      return 1
+    fi
+  else
+    echo "Profile '$user_alias' not found."
+    read -p "Create a new profile named '$user_alias'? [y/N]: " create_choice
+    if [[ ! "$create_choice" =~ ^[Yy]$ ]]; then
+      echo "No changes made."
+      return 1
+    fi
+    read -p "Enter git user name: " name
+    read -p "Enter email: " email
+    add_user_profile "$user_alias" "$name" "$email"
+  fi
 }
 
 show_user_info() {
@@ -254,13 +364,14 @@ show_help() {
   echo "A tool to manage Git user and email information."
   echo ""
   echo "Commands:"
-  echo "  set [-g|--global] [-u|--user ALIAS | ALIAS]   Set user info for the current directory or globally."
-  echo "                                                Use -u/--user or direct ALIAS to set to an existing profile or create new one."
+  echo "  set [-g|--global] [-u|--user ALIAS | ALIAS]   Switch to an existing profile and apply it. If missing, optionally create."
   echo "  show                                          Show the current user info."
   echo "  add [-u|--user ALIAS | ALIAS]                 Add a new user profile with a unique alias."
   echo "  delete [-u|--user ALIAS | ALIAS]              Delete an existing user profile."
   echo "  list                                          List all available user profiles with the current one highlighted."
+  echo "  update [-u|--user ALIAS | ALIAS]              Update profile name/email in the config file (create on request)."
   echo "  version | -v | --version                      Show the current tool version."
+  echo "  upgrade                                       Download and install the latest version of gu."
   echo "  help | -h | --help                            Show this help message and exit."
   echo ""
   echo "Options:"
@@ -305,6 +416,13 @@ delete)
   ;;
 list)
   list_profiles
+  ;;
+upgrade)
+  upgrade_gu
+  ;;
+update)
+  shift
+  update_user_info "$@"
   ;;
 *)
   echo "Invalid command. Showing help:"
