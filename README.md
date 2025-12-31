@@ -64,6 +64,12 @@ gu upgrade               # self-update the tool
 curl -sSL https://raw.githubusercontent.com/hnrobert/gu/main/install.sh | bash
 ```
 
+> 若要在安装时使用开发分支，可使用 `develop` 分支并添加 `-d` 参数：
+>
+> ```bash
+> curl -sSL https://raw.githubusercontent.com/hnrobert/gu/develop/install.sh | bash -s -- -d
+> ```
+
 ### 使用
 
 #### 命令（中文）
