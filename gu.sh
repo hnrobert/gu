@@ -4,10 +4,24 @@
 
 CONFIG_FILE="$HOME/.git_user_profiles"
 VERSION="v1.1.0"
-UPDATE_URL="https://raw.githubusercontent.com/hnrobert/gu/develop/gu.sh"
+UPDATE_URL="https://raw.githubusercontent.com/hnrobert/gu/main/gu.sh"
 
 highlight_text() {
   echo "$(tput setaf 2)$(tput bold)$1$(tput sgr0)"
+}
+
+default_alias_from_name() {
+  local input="$1"
+  local first_part="${input%% *}"
+  if [[ -z "$first_part" ]]; then
+    first_part="$input"
+  fi
+  local lowered
+  lowered=$(printf '%s' "$first_part" | tr '[:upper:]' '[:lower:]')
+  if [[ -z "$lowered" ]]; then
+    lowered="user"
+  fi
+  echo "$lowered"
 }
 
 show_version() {
@@ -58,6 +72,7 @@ upgrade_gu() {
 set_user_info() {
   local scope="local"
   local user_alias=""
+  local create_new=0
 
   # Create config file if it doesn't exist
   if [[ ! -f "$CONFIG_FILE" ]]; then
@@ -86,8 +101,50 @@ set_user_info() {
     esac
   done
 
-  # If --user specified, try to use existing profile; only prompt to create when missing
-  if [[ -n "$user_alias" ]]; then
+  # If no alias provided, offer selection from existing profiles with an "add other" option
+  if [[ -z "$user_alias" ]]; then
+    if [[ -s "$CONFIG_FILE" ]]; then
+      echo "Available profiles:"
+      local aliases=()
+      local names=()
+      local emails=()
+      local i=1
+      while IFS='|' read -r a n e; do
+        aliases+=("$a")
+        names+=("$n")
+        emails+=("$e")
+        echo "$i) Alias: $a, Name: $n, Email: $e"
+        ((i++))
+      done <"$CONFIG_FILE"
+      local add_option="$i"
+      echo "$add_option) Add another profile"
+
+      read -p "Select number or enter alias: " selection
+      if [[ -z "$selection" ]]; then
+        echo "No selection made."
+        return 1
+      fi
+
+      local valid_num_regex='^[0-9]+$'
+      if [[ $selection =~ $valid_num_regex ]]; then
+        if ((selection >= 1 && selection < add_option)); then
+          user_alias="${aliases[$selection - 1]}"
+        elif ((selection == add_option)); then
+          create_new=1
+        else
+          echo "Invalid selection."
+          return 1
+        fi
+      else
+        user_alias="$selection"
+      fi
+    else
+      create_new=1
+    fi
+  fi
+
+  # If alias provided and profile exists, apply it
+  if [[ $create_new -eq 0 && -n "$user_alias" ]]; then
     if grep -q "^$user_alias|" "$CONFIG_FILE" 2>/dev/null; then
       local selected_profile=$(grep "^$user_alias|" "$CONFIG_FILE")
       IFS='|' read -r alias name email <<<"$selected_profile"
@@ -102,23 +159,24 @@ set_user_info() {
         echo "No changes made."
         return 1
       fi
-      read -p "Enter git user name: " name
-      read -p "Enter email: " email
+      create_new=1
       alias="$user_alias"
     fi
-  else
-    # No alias provided: fall back to interactive creation
-    read -p "Enter git user name: " name
-    read -p "Enter email: " email
-    read -p "Enter alias (default: $name): " alias
-    alias=${alias:-$name}
   fi
 
-  git config --$scope user.name "$name"
-  git config --$scope user.email "$email"
-  echo "User information set to Name: $name, Email: $email (Scope: $scope)"
+  # Creation flow
+  if [[ $create_new -eq 1 ]]; then
+    read -p "Enter git user name: " name
+    read -p "Enter email: " email
+    read -p "Enter alias (default: $(default_alias_from_name "$name")): " alias
+    alias=${alias:-$(default_alias_from_name "$name")}
 
-  add_user_profile "$alias" "$name" "$email"
+    git config --$scope user.name "$name"
+    git config --$scope user.email "$email"
+    echo "User information set to Name: $name, Email: $email (Scope: $scope)"
+
+    add_user_profile "$alias" "$name" "$email"
+  fi
 }
 
 update_user_info() {
@@ -146,20 +204,41 @@ update_user_info() {
   done
 
   if [[ -z "$user_alias" ]]; then
-    read -p "Enter alias to update: " user_alias
-    if [[ -z "$user_alias" ]]; then
+    list_profiles
+    # If listing shows no profiles, exit early
+    if [[ ! -s "$CONFIG_FILE" ]]; then
+      return 1
+    fi
+
+    local aliases=($(awk -F'|' '{print $1}' "$CONFIG_FILE" 2>/dev/null))
+    read -p "Enter alias or number to update: " user_choice
+    if [[ -z "$user_choice" ]]; then
       echo "No alias provided."
       return 1
+    fi
+
+    local valid_num_regex='^[0-9]+$'
+    if [[ $user_choice =~ $valid_num_regex ]] && [ "$user_choice" -ge 1 ] && [ "$user_choice" -le "${#aliases[@]}" ]; then
+      user_alias="${aliases[$user_choice - 1]}"
+    else
+      user_alias="$user_choice"
     fi
   fi
 
   if grep -q "^$user_alias|" "$CONFIG_FILE" 2>/dev/null; then
     local selected_profile=$(grep "^$user_alias|" "$CONFIG_FILE")
     IFS='|' read -r alias name email <<<"$selected_profile"
+    read -p "Enter alias [$alias]: " new_alias
+    new_alias=${new_alias:-$alias}
     read -p "Enter git user name [$name]: " new_name
     new_name=${new_name:-$name}
     read -p "Enter email [$email]: " new_email
     new_email=${new_email:-$email}
+
+    if [[ "$new_alias" != "$alias" ]] && grep -q "^$new_alias|" "$CONFIG_FILE" 2>/dev/null; then
+      echo "Alias '$new_alias' already exists. No changes made."
+      return 1
+    fi
 
     local tmp_file
     tmp_file=$(mktemp) || {
@@ -167,8 +246,8 @@ update_user_info() {
       return 1
     }
 
-    if awk -F'|' -v alias="$alias" -v new_name="$new_name" -v new_email="$new_email" 'BEGIN{OFS="|"} {if($1==alias){$2=new_name;$3=new_email} print}' "$CONFIG_FILE" >"$tmp_file" && mv "$tmp_file" "$CONFIG_FILE"; then
-      echo "Profile '$alias' updated to Name: $new_name, Email: $new_email"
+    if awk -F'|' -v old_alias="$alias" -v new_alias="$new_alias" -v new_name="$new_name" -v new_email="$new_email" 'BEGIN{OFS="|"} {if($1==old_alias){$1=new_alias;$2=new_name;$3=new_email} print}' "$CONFIG_FILE" >"$tmp_file" && mv "$tmp_file" "$CONFIG_FILE"; then
+      echo "Profile '$old_alias' updated to Alias: $new_alias, Name: $new_name, Email: $new_email"
     else
       echo "Failed to update profile."
       rm -f "$tmp_file"
@@ -364,31 +443,28 @@ show_help() {
   echo "A tool to manage Git user and email information."
   echo ""
   echo "Commands:"
-  echo "  set [-g|--global] [-u|--user ALIAS | ALIAS]   Switch to an existing profile and apply it. If missing, optionally create."
   echo "  show                                          Show the current user info."
-  echo "  add [-u|--user ALIAS | ALIAS]                 Add a new user profile with a unique alias."
-  echo "  delete [-u|--user ALIAS | ALIAS]              Delete an existing user profile."
   echo "  list                                          List all available user profiles with the current one highlighted."
-  echo "  update [-u|--user ALIAS | ALIAS]              Update profile name/email in the config file (create on request)."
-  echo "  version | -v | --version                      Show the current tool version."
+  echo "  add [-u|--user ALIAS | ALIAS]                 Add a new user profile with a unique alias."
+  echo "  set [-g|--global] [-u|--user ALIAS | ALIAS]   Switch to an existing profile and apply it. If missing, optionally create."
+  echo "  delete [-u|--user ALIAS | ALIAS]              Delete an existing user profile."
+  echo "  update [-u|--user ALIAS | ALIAS]              Update profile alias/name/email in the config file (create on request)."
   echo "  upgrade                                       Download and install the latest version of gu."
   echo "  help | -h | --help                            Show this help message and exit."
-  echo ""
-  echo "Options:"
-  echo "  -g, --global                                  Apply settings globally instead of locally."
-  echo "  -u, --user ALIAS                              Specify user profile alias."
+  echo "  version | -v | --version                      Show the current tool version."
   echo ""
   echo "Examples:"
+  echo "  gu list                                       List all Git User profiles."
+  echo "  gu show                                       Show the current Git user name and email."
+  echo "  gu add work                                   Add a new Git user profile with alias 'work'."
   echo "  gu set -g                                     Set global Git user name and email interactively."
-  echo "  gu set --global                               Same as above using long form."
   echo "  gu set -u hnrobert                            Switch to 'hnrobert' profile or create it if not exists."
   echo "  gu set hnrobert                               Same as above without -u flag."
   echo "  gu set -g workuser                            Switch to 'workuser' profile globally."
-  echo "  gu add work                                   Add a new Git user profile with alias 'work'."
-  echo "  gu add -u work                                Same as above using short form."
   echo "  gu delete prev                                Delete the 'prev' user profile."
-  echo "  gu delete -u prev                             Same as above using short form."
-  echo "  gu list                                       List all Git user profiles."
+  echo "  gu update                                     Update an existing profile interactively."
+  echo "  gu update -u workuser                         Update the 'workuser' profile interact"
+  echo "  gu upgrade                                    Upgrade gu to the latest version."
 }
 
 # Main program
