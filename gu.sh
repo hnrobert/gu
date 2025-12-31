@@ -358,33 +358,62 @@ config_auth_key() {
   local selectable=()
   local idx=1
 
+  # Helper to parse an authorized_keys line into options, key_type, key_body, and comment.
+  parse_authorized_key() {
+    local line="$1"
+    options=""
+    key_type=""
+    key_body=""
+    comment=""
+    assigned_alias=""
+
+    IFS=' ' read -r -a tokens <<<"$line"
+    local key_idx=-1
+    for i in "${!tokens[@]}"; do
+      case "${tokens[$i]}" in
+      ssh-* | ecdsa-* | sk-*)
+        key_idx=$i
+        break
+        ;;
+      esac
+    done
+
+    if ((key_idx < 0)); then
+      return 1
+    fi
+
+    if ((key_idx > 0)); then
+      options="${tokens[*]:0:key_idx}"
+    fi
+
+    key_type="${tokens[$key_idx]}"
+    key_body="${tokens[$((key_idx + 1))]:-}"
+
+    if ((key_idx + 2 < ${#tokens[@]})); then
+      comment="${tokens[*]:$((key_idx + 2))}"
+    fi
+
+    options=$(printf '%s' "$options" | sed 's/[[:space:]]*$//')
+
+    if [[ "$line" =~ command=\"([^\"]*)\" ]]; then
+      local cmd_value="${BASH_REMATCH[1]}"
+      if [[ "$cmd_value" =~ (^|[[:space:]])[^[:space:]]*gutemp[[:space:]]+([^[:space:]]+)([[:space:]]|$) ]]; then
+        assigned_alias="${BASH_REMATCH[2]}"
+      fi
+    fi
+
+    if [[ -z "$key_type" || -z "$key_body" ]]; then
+      return 1
+    fi
+    return 0
+  }
+
   while IFS= read -r line || [[ -n "$line" ]]; do
     lines+=("$line")
     [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
 
-    local working="$line"
-    local options=""
-    local key_type=""
-    local key_body=""
-    local comment=""
-
-    # Extract options (may be empty), key type, key body, and trailing comment
-    if [[ "$working" =~ ^(.*?)(ssh-rsa|ssh-ed25519|ecdsa-[^[:space:]]+|sk-[^[:space:]]+)\s+([^[:space:]]+)\s*(.*)$ ]]; then
-      options=$(printf '%s' "${BASH_REMATCH[1]}" | sed 's/[[:space:]]*$//')
-      key_type="${BASH_REMATCH[2]}"
-      key_body="${BASH_REMATCH[3]}"
-      comment="${BASH_REMATCH[4]}"
-    fi
-
-    [[ -z "$key_type" || -z "$key_body" ]] && continue
-
-    local assigned_alias=""
-    if [[ "$working" =~ command=\"([^\"]*)\" ]]; then
-      local cmd_value="${BASH_REMATCH[1]}"
-      # Accept optional leading path and arguments around gutemp
-      if [[ "$cmd_value" =~ (^|[[:space:]])[^[:space:]]*gutemp[[:space:]]+([^[:space:]]+)([[:space:]]|$) ]]; then
-        assigned_alias="${BASH_REMATCH[2]}"
-      fi
+    if ! parse_authorized_key "$line"; then
+      continue
     fi
 
     local prefix=${key_body:0:5}
@@ -418,12 +447,11 @@ config_auth_key() {
   local key_type=""
   local key_body=""
   local comment=""
+  local assigned_alias=""
 
-  if [[ "$selected_line" =~ ^(.*?)(ssh-rsa|ssh-ed25519|ecdsa-[^[:space:]]+|sk-[^[:space:]]+)\s+([^[:space:]]+)\s*(.*)$ ]]; then
-    options=$(printf '%s' "${BASH_REMATCH[1]}" | sed 's/[[:space:]]*$//')
-    key_type="${BASH_REMATCH[2]}"
-    key_body="${BASH_REMATCH[3]}"
-    comment="${BASH_REMATCH[4]}"
+  if ! parse_authorized_key "$selected_line"; then
+    echo "Failed to parse the selected key."
+    return 1
   fi
 
   if [[ -z "$key_type" || -z "$key_body" ]]; then
