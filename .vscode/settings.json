@@ -4,7 +4,7 @@
     "editor.defaultFormatter": "redhat.vscode-yaml"
   },
   "[shellscript]": {
-    "editor.defaultFormatter": "foxundermoon.shell-format"
+    "editor.defaultFormatter": "mkhl.shfmt"
   },
   "prettier.tabWidth": 2,
   "cSpell.words": [

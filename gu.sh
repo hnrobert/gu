@@ -3,39 +3,44 @@
 # gu (git-user): A tool to manage Git user and email information
 
 CONFIG_FILE="$HOME/.git_user_profiles"
+VERSION="v1.0.0"
 
 highlight_text() {
   echo "$(tput setaf 2)$(tput bold)$1$(tput sgr0)"
 }
 
+show_version() {
+  echo "gu version: $VERSION"
+}
+
 set_user_info() {
   local scope="local"
   local user_alias=""
-  
+
   # Create config file if it doesn't exist
   if [[ ! -f "$CONFIG_FILE" ]]; then
     touch "$CONFIG_FILE"
   fi
-  
+
   # Parse arguments for --global and --user
   while [[ $# -gt 0 ]]; do
     case $1 in
-      --global|-g)
-        scope="global"
-        shift
-        ;;
-      --user|-u)
-        user_alias="$2"
-        shift 2
-        ;;
-      *)
-        # If no --user flag was specified but there's a remaining argument,
-        # treat it as the user alias
-        if [[ -z "$user_alias" && -n "$1" ]]; then
-          user_alias="$1"
-        fi
-        shift
-        ;;
+    --global | -g)
+      scope="global"
+      shift
+      ;;
+    --user | -u)
+      user_alias="$2"
+      shift 2
+      ;;
+    *)
+      # If no --user flag was specified but there's a remaining argument,
+      # treat it as the user alias
+      if [[ -z "$user_alias" && -n "$1" ]]; then
+        user_alias="$1"
+      fi
+      shift
+      ;;
     esac
   done
 
@@ -100,21 +105,21 @@ add_user_profile() {
 # Function to add a new user profile with --user support
 add_profile_interactive() {
   local user_alias=""
-  
+
   # Parse arguments - first check for --user flag, then for direct alias argument
   while [[ $# -gt 0 ]]; do
     case $1 in
-      --user|-u)
-        user_alias="$2"
-        shift 2
-        ;;
-      *)
-        # If no --user flag, treat first argument as alias
-        if [[ -z "$user_alias" ]]; then
-          user_alias="$1"
-        fi
-        shift
-        ;;
+    --user | -u)
+      user_alias="$2"
+      shift 2
+      ;;
+    *)
+      # If no --user flag, treat first argument as alias
+      if [[ -z "$user_alias" ]]; then
+        user_alias="$1"
+      fi
+      shift
+      ;;
     esac
   done
 
@@ -136,7 +141,7 @@ add_profile_interactive() {
     read -p "Enter email: " email
     read -p "Enter alias: " alias
   fi
-  
+
   add_user_profile "$alias" "$name" "$email"
 }
 
@@ -146,7 +151,7 @@ list_profiles() {
   if [[ ! -f "$CONFIG_FILE" ]]; then
     touch "$CONFIG_FILE"
   fi
-  
+
   # Check if file is empty
   if [[ ! -s "$CONFIG_FILE" ]]; then
     echo "No profiles available."
@@ -173,32 +178,32 @@ list_profiles() {
 # Interactive function to delete a profile with --user support
 delete_user_profile() {
   local user_alias=""
-  
+
   # Create config file if it doesn't exist
   if [[ ! -f "$CONFIG_FILE" ]]; then
     touch "$CONFIG_FILE"
   fi
-  
+
   # Check if file is empty
   if [[ ! -s "$CONFIG_FILE" ]]; then
     echo "No profiles available to delete."
     return
   fi
-  
+
   # Parse arguments - first check for --user flag, then for direct alias argument
   while [[ $# -gt 0 ]]; do
     case $1 in
-      --user|-u)
-        user_alias="$2"
-        shift 2
-        ;;
-      *)
-        # If no --user flag, treat first argument as alias
-        if [[ -z "$user_alias" ]]; then
-          user_alias="$1"
-        fi
-        shift
-        ;;
+    --user | -u)
+      user_alias="$2"
+      shift 2
+      ;;
+    *)
+      # If no --user flag, treat first argument as alias
+      if [[ -z "$user_alias" ]]; then
+        user_alias="$1"
+      fi
+      shift
+      ;;
     esac
   done
 
@@ -218,12 +223,12 @@ delete_user_profile() {
 
   # Interactive mode
   list_profiles
-  
+
   # Check again if file is empty after listing (in case list_profiles shows "No profiles available")
   if [[ ! -s "$CONFIG_FILE" ]]; then
     return
   fi
-  
+
   local profiles=($(awk -F'|' '{print $1}' "$CONFIG_FILE" 2>/dev/null))
 
   read -p "Enter the number of the profile to delete: " choice
@@ -255,7 +260,8 @@ show_help() {
   echo "  add [-u|--user ALIAS | ALIAS]                 Add a new user profile with a unique alias."
   echo "  delete [-u|--user ALIAS | ALIAS]              Delete an existing user profile."
   echo "  list                                          List all available user profiles with the current one highlighted."
-  echo "  --help                                        Show this help message and exit."
+  echo "  version | -v | --version                      Show the current tool version."
+  echo "  help | -h | --help                            Show this help message and exit."
   echo ""
   echo "Options:"
   echo "  -g, --global                                  Apply settings globally instead of locally."
@@ -276,7 +282,10 @@ show_help() {
 
 # Main program
 case "$1" in
---help | -h)
+version | --version | -v)
+  show_version
+  ;;
+help | --help | -h)
   show_help
   ;;
 set)
@@ -298,7 +307,8 @@ list)
   list_profiles
   ;;
 *)
-  echo "Invalid command. Use --help or -h for usage information."
+  echo "Invalid command. Showing help:"
+  show_help
   exit 1
   ;;
 esac
