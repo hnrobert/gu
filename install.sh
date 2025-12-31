@@ -10,6 +10,21 @@ TARGET_GUTEMP="gutemp"
 # Remote script locations
 REPO_BASE_URL="https://raw.githubusercontent.com/hnrobert/gu"
 BRANCH="main"
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+  -d | --develop)
+    BRANCH="develop"
+    shift
+    ;;
+  *)
+    echo "Unknown option: $1"
+    echo "Usage: ./install.sh [-d|--develop]"
+    exit 1
+    ;;
+  esac
+done
+
 SCRIPT_URL="$REPO_BASE_URL/$BRANCH/gu.sh"
 GUTEMP_URL="$REPO_BASE_URL/$BRANCH/gutemp.sh"
 
@@ -17,7 +32,7 @@ GUTEMP_URL="$REPO_BASE_URL/$BRANCH/gutemp.sh"
 GU_DIR="$HOME/.gu"
 CONFIG_FILE="$GU_DIR/profiles"
 
-echo "Installing $TARGET_CMD"
+echo "Installing $TARGET_CMD from branch '$BRANCH'"
 
 # Download the script using curl
 curl -o "$TARGET_CMD" "$SCRIPT_URL" || {
