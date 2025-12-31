@@ -378,7 +378,7 @@ config_auth_key() {
     [[ -z "$key_type" || -z "$key_body" ]] && continue
 
     local assigned_alias=""
-    if [[ -n "$options" && "$options" =~ command=\"([^\"]*)\" ]]; then
+    if [[ "$working" =~ command=\"([^\"]*)\" ]]; then
       local cmd_value="${BASH_REMATCH[1]}"
       if [[ "$cmd_value" =~ (^|[[:space:]])gutemp[[:space:]]+([^[:space:]]+)([[:space:]]|$) ]]; then
         assigned_alias="${BASH_REMATCH[2]}"
