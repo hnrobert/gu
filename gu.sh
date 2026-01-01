@@ -2,12 +2,25 @@
 
 # gu (git-user): A tool to manage Git user and email information
 
-CONFIG_FILE="$HOME/.git_user_profiles"
-VERSION="v1.1.0"
-UPDATE_URL="https://raw.githubusercontent.com/hnrobert/gu/main/gu.sh"
+REPO_BASE_URL="https://raw.githubusercontent.com/hnrobert/gu"
+VERSION="v1.2.0"
+GU_DIR="$HOME/.gu"
+CONFIG_FILE="$GU_DIR/profiles"
+REMOTE_FILE="$GU_DIR/remote_hosts"
+LAST_SELECTED_ALIAS=""
 
 highlight_text() {
   echo "$(tput setaf 2)$(tput bold)$1$(tput sgr0)"
+}
+
+ensure_storage() {
+  mkdir -p "$GU_DIR"
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    touch "$CONFIG_FILE"
+  fi
+  if [[ ! -f "$REMOTE_FILE" ]]; then
+    touch "$REMOTE_FILE"
+  fi
 }
 
 default_alias_from_name() {
@@ -29,22 +42,68 @@ show_version() {
 }
 
 upgrade_gu() {
-  local tmp_file
-  tmp_file=$(mktemp) || {
+  local target_branch="main"
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+    -d | --develop)
+      target_branch="develop"
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1"
+      return 1
+      ;;
+    esac
+  done
+
+  local script_url="$REPO_BASE_URL/$target_branch/gu.sh"
+  local gutemp_url="$REPO_BASE_URL/$target_branch/gutemp.sh"
+
+  local tmp_gu
+  tmp_gu=$(mktemp) || {
     echo "Failed to create a temporary file for download."
     return 1
   }
 
-  echo "Downloading latest gu from $UPDATE_URL ..."
-  if ! curl -fsSL "$UPDATE_URL" -o "$tmp_file"; then
+  local tmp_gutemp
+  tmp_gutemp=$(mktemp) || {
+    echo "Failed to create a temporary file for gutemp download."
+    rm -f "$tmp_gu"
+    return 1
+  }
+
+  echo "Downloading latest gu from $script_url ..."
+  if ! curl -fsSL \
+    -H "Cache-Control: no-cache, no-store, must-revalidate" \
+    -H "Pragma: no-cache" \
+    -H "Expires: 0" \
+    "$script_url" -o "$tmp_gu"; then
     echo "Download failed."
-    rm -f "$tmp_file"
+    rm -f "$tmp_gu" "$tmp_gutemp"
     return 1
   fi
 
-  chmod +x "$tmp_file" || {
+  echo "Downloading latest gutemp from $gutemp_url ..."
+  if ! curl -fsSL \
+    -H "Cache-Control: no-cache, no-store, must-revalidate" \
+    -H "Pragma: no-cache" \
+    -H "Expires: 0" \
+    "$gutemp_url" -o "$tmp_gutemp"; then
+    echo "Download of gutemp failed."
+    rm -f "$tmp_gu" "$tmp_gutemp"
+    return 1
+  fi
+
+  chmod +x "$tmp_gu" || {
     echo "Failed to mark the downloaded script as executable."
-    rm -f "$tmp_file"
+    rm -f "$tmp_gu" "$tmp_gutemp"
+    return 1
+  }
+
+  chmod +x "$tmp_gutemp" || {
+    echo "Failed to mark the downloaded gutemp as executable."
+    rm -f "$tmp_gu" "$tmp_gutemp"
     return 1
   }
 
@@ -54,14 +113,31 @@ upgrade_gu() {
     target_path="$0"
   fi
 
+  local target_gutemp
+  target_gutemp=$(command -v gutemp 2>/dev/null)
+  if [[ -z "$target_gutemp" ]]; then
+    target_gutemp="/usr/local/bin/gutemp"
+  fi
+
   echo "Installing update to $target_path ..."
-  if mv "$tmp_file" "$target_path" 2>/dev/null; then
+  if mv "$tmp_gu" "$target_path" 2>/dev/null; then
     echo "Update successful."
-  elif sudo mv "$tmp_file" "$target_path"; then
+  elif sudo mv "$tmp_gu" "$target_path"; then
     echo "Update successful (used sudo)."
   else
     echo "Failed to install update. Check permissions."
-    rm -f "$tmp_file"
+    rm -f "$tmp_gu" "$tmp_gutemp"
+    return 1
+  fi
+
+  echo "Installing gutemp update to $target_gutemp ..."
+  if mv "$tmp_gutemp" "$target_gutemp" 2>/dev/null; then
+    echo "gutemp update successful."
+  elif sudo mv "$tmp_gutemp" "$target_gutemp"; then
+    echo "gutemp update successful (used sudo)."
+  else
+    echo "Failed to install gutemp update. Check permissions."
+    rm -f "$tmp_gutemp"
     return 1
   fi
 
@@ -73,15 +149,17 @@ set_user_info() {
   local scope="local"
   local user_alias=""
   local create_new=0
+  local apply_git=1
 
-  # Create config file if it doesn't exist
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    touch "$CONFIG_FILE"
-  fi
+  ensure_storage
 
   # Parse arguments for --global and --user
   while [[ $# -gt 0 ]]; do
     case $1 in
+    --no-apply)
+      apply_git=0
+      shift
+      ;;
     --global | -g)
       scope="global"
       shift
@@ -148,9 +226,18 @@ set_user_info() {
     if grep -q "^$user_alias|" "$CONFIG_FILE" 2>/dev/null; then
       local selected_profile=$(grep "^$user_alias|" "$CONFIG_FILE")
       IFS='|' read -r alias name email <<<"$selected_profile"
-      git config --$scope user.name "$name"
-      git config --$scope user.email "$email"
-      echo "Set to profile: Alias: $alias, Name: $name, Email: $email (Scope: $scope)"
+      if ((apply_git == 1)); then
+        if [[ "$scope" == "local" ]] && ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+          echo "Local scope requires running inside a git repository. Use --global or run inside a repo."
+          return 1
+        fi
+        if ! git config --$scope user.name "$name" || ! git config --$scope user.email "$email"; then
+          echo "Failed to apply git config for alias '$alias'."
+          return 1
+        fi
+        echo "Set to profile: Alias: $alias, Name: $name, Email: $email (Scope: $scope)"
+      fi
+      LAST_SELECTED_ALIAS="$alias"
       return
     else
       echo "Profile '$user_alias' not found."
@@ -171,21 +258,27 @@ set_user_info() {
     read -p "Enter alias (default: $(default_alias_from_name "$name")): " alias
     alias=${alias:-$(default_alias_from_name "$name")}
 
-    git config --$scope user.name "$name"
-    git config --$scope user.email "$email"
+    if ((apply_git == 1)); then
+      if [[ "$scope" == "local" ]] && ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "Local scope requires running inside a git repository. Use --global or run inside a repo."
+        return 1
+      fi
+      if ! git config --$scope user.name "$name" || ! git config --$scope user.email "$email"; then
+        echo "Failed to apply git config for alias '$alias'."
+        return 1
+      fi
+    fi
     echo "User information set to Name: $name, Email: $email (Scope: $scope)"
 
     add_user_profile "$alias" "$name" "$email"
+    LAST_SELECTED_ALIAS="$alias"
   fi
 }
 
 update_user_info() {
   local user_alias=""
 
-  # Create config file if it doesn't exist
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    touch "$CONFIG_FILE"
-  fi
+  ensure_storage
 
   # Parse arguments for --user
   while [[ $# -gt 0 ]]; do
@@ -266,6 +359,521 @@ update_user_info() {
   fi
 }
 
+config_auth_key() {
+  local alias="$1"
+  local alias_provided=0
+  local auth_keys="$HOME/.ssh/authorized_keys"
+
+  if [[ -n "$alias" ]]; then
+    alias_provided=1
+  fi
+
+  mkdir -p "$HOME/.ssh"
+  ensure_storage
+  touch "$auth_keys"
+
+  local lines=()
+  local selectable=()
+  local idx=1
+
+  # Helper to parse an authorized_keys line into options, key_type, key_body, and comment.
+  parse_authorized_key() {
+    local line="$1"
+    options=""
+    key_type=""
+    key_body=""
+    comment=""
+    assigned_alias=""
+
+    IFS=' ' read -r -a tokens <<<"$line"
+    local key_idx=-1
+    for i in "${!tokens[@]}"; do
+      case "${tokens[$i]}" in
+      ssh-* | ecdsa-* | sk-*)
+        key_idx=$i
+        break
+        ;;
+      esac
+    done
+
+    if ((key_idx < 0)); then
+      return 1
+    fi
+
+    if ((key_idx > 0)); then
+      options="${tokens[*]:0:key_idx}"
+    fi
+
+    key_type="${tokens[$key_idx]}"
+    key_body="${tokens[$((key_idx + 1))]:-}"
+
+    if ((key_idx + 2 < ${#tokens[@]})); then
+      comment="${tokens[*]:$((key_idx + 2))}"
+    fi
+
+    options=$(printf '%s' "$options" | sed 's/[[:space:]]*$//')
+
+    if [[ "$line" =~ command=\"([^\"]*)\" ]]; then
+      local cmd_value="${BASH_REMATCH[1]}"
+      if [[ "$cmd_value" =~ (^|[[:space:]])[^[:space:]]*gutemp[[:space:]]+([^[:space:]]+)([[:space:]]|$) ]]; then
+        assigned_alias="${BASH_REMATCH[2]}"
+      fi
+    fi
+
+    if [[ -z "$key_type" || -z "$key_body" ]]; then
+      return 1
+    fi
+    return 0
+  }
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    lines+=("$line")
+    [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
+
+    if ! parse_authorized_key "$line"; then
+      continue
+    fi
+
+    local prefix=${key_body:0:5}
+    local display_comment=${comment:-<no-comment>}
+    local display_line="$idx) $key_type ${prefix}... $display_comment"
+    if [[ -n "$assigned_alias" ]]; then
+      display_line="$display_line -> $(highlight_text "$assigned_alias")"
+    fi
+    echo "$display_line"
+    selectable+=("$line")
+    ((idx++))
+  done <"$auth_keys"
+
+  if ((${#selectable[@]} == 0)); then
+    echo "No keys found in $auth_keys."
+    return 1
+  fi
+
+  local choice
+  read -p "Select key number to bind: " choice
+  local valid_num_regex='^[0-9]+$'
+  if ! [[ $choice =~ $valid_num_regex ]] || ((choice < 1 || choice > ${#selectable[@]})); then
+    echo "Invalid selection."
+    return 1
+  fi
+
+  local selected_line="${selectable[$((choice - 1))]}"
+
+  # Recompose the selected line with enforced command option
+  local options=""
+  local key_type=""
+  local key_body=""
+  local comment=""
+  local assigned_alias=""
+
+  if ! parse_authorized_key "$selected_line"; then
+    echo "Failed to parse the selected key."
+    return 1
+  fi
+
+  if [[ -z "$key_type" || -z "$key_body" ]]; then
+    echo "Failed to parse the selected key."
+    return 1
+  fi
+
+  local had_command=0
+  local existing_command=""
+  if [[ -n "$options" && "$options" =~ command=\"([^\"]*)\" ]]; then
+    had_command=1
+    existing_command="${BASH_REMATCH[1]}"
+  fi
+
+  if [[ $had_command -eq 1 && $alias_provided -eq 0 ]]; then
+    echo "Selected key already has command=\"$existing_command\"."
+    read -p "Delete existing command or overwrite with gutemp alias? [d/o]: " command_choice
+    if [[ "$command_choice" =~ ^[Dd]$ ]]; then
+      if [[ -n "$options" ]]; then
+        options=$(printf '%s' "$options" | sed 's/command="[^"]*"//g; s/^,*//; s/,*$//; s/,,*/,/g')
+      fi
+      local cleaned_line=""
+      if [[ -n "$options" ]]; then
+        cleaned_line="$options $key_type $key_body"
+      else
+        cleaned_line="$key_type $key_body"
+      fi
+      if [[ -n "$comment" ]]; then
+        cleaned_line="$cleaned_line $comment"
+      fi
+
+      local tmp_file
+      tmp_file=$(mktemp) || {
+        echo "Failed to create temp file."
+        return 1
+      }
+
+      for line in "${lines[@]}"; do
+        if [[ "${line}" == "${selected_line}" ]]; then
+          echo "$cleaned_line" >>"$tmp_file"
+        else
+          echo "$line" >>"$tmp_file"
+        fi
+      done
+
+      mv "$tmp_file" "$auth_keys"
+      chmod 600 "$auth_keys"
+      echo "Removed existing command= from selected key; no alias binding applied."
+      return 0
+    elif [[ "$command_choice" =~ ^[Oo]$ ]]; then
+      : # continue to overwrite path
+    else
+      echo "No changes made."
+      return 1
+    fi
+  fi
+
+  # Determine alias if not provided
+  if [[ -z "$alias" ]]; then
+    echo "No alias provided. Please choose or create one."
+    set_user_info --no-apply
+    if [[ -z "$LAST_SELECTED_ALIAS" ]]; then
+      echo "Alias selection failed."
+      return 1
+    fi
+    alias="$LAST_SELECTED_ALIAS"
+  fi
+
+  if ! grep -q "^$alias|" "$CONFIG_FILE" 2>/dev/null; then
+    echo "Alias '$alias' not found in $CONFIG_FILE. Run 'gu set -u $alias' to create it first."
+    return 1
+  fi
+
+  local gutemp_cmd
+  gutemp_cmd=$(command -v gutemp 2>/dev/null || true)
+  if [[ -z "$gutemp_cmd" ]]; then
+    gutemp_cmd="/usr/local/bin/gutemp"
+  fi
+  if [[ ! -x "$gutemp_cmd" ]]; then
+    echo "gutemp not found or not executable at $gutemp_cmd. Reinstall and try again."
+    return 1
+  fi
+
+  local command_value="command=\"$gutemp_cmd $alias\""
+
+  # Remove any existing command="..." in options before inserting ours
+  if [[ -n "$options" ]]; then
+    options=$(printf '%s' "$options" | sed 's/command="[^"]*"//g; s/^,*//; s/,*$//; s/,,*/,/g')
+  fi
+
+  local new_line=""
+  if [[ -n "$options" ]]; then
+    new_line="$command_value,$options $key_type $key_body"
+  else
+    new_line="$command_value $key_type $key_body"
+  fi
+
+  if [[ -n "$comment" ]]; then
+    new_line="$new_line $comment"
+  fi
+
+  local tmp_file
+  tmp_file=$(mktemp) || {
+    echo "Failed to create temp file."
+    return 1
+  }
+
+  for line in "${lines[@]}"; do
+    if [[ "${line}" == "${selected_line}" ]]; then
+      echo "$new_line" >>"$tmp_file"
+    else
+      echo "$line" >>"$tmp_file"
+    fi
+  done
+
+  mv "$tmp_file" "$auth_keys"
+  chmod 600 "$auth_keys"
+  echo "Bound alias '$alias' to selected key via command='$gutemp_cmd $alias'."
+}
+
+config_remote_host() {
+  local remote_alias="$1"
+  local ssh_config_path="$2"
+
+  ensure_storage
+
+  if [[ -z "$ssh_config_path" ]]; then
+    ssh_config_path="$HOME/.ssh/config"
+  fi
+
+  if [[ ! -f "$ssh_config_path" ]]; then
+    echo "SSH config not found at $ssh_config_path."
+    return 1
+  fi
+
+  local hosts=()
+  local host_aliases=()
+  local current_hosts=()
+  local current_alias=""
+
+  parse_remote_alias_from_rc() {
+    local rc_line="$1"
+    local last=""
+    read -r -a rc_words <<<"$rc_line"
+    for idx in "${!rc_words[@]}"; do
+      local word="${rc_words[$idx]}"
+      if [[ "$word" == "gutemp" || "$word" == */gutemp ]]; then
+        local nxt="${rc_words[$((idx + 1))]:-}"
+        if [[ -n "$nxt" ]]; then
+          nxt=${nxt%%;*}
+          last="$nxt"
+        fi
+      fi
+    done
+    echo "$last"
+  }
+
+  finish_host_block() {
+    if ((${#current_hosts[@]} > 0)); then
+      for h in "${current_hosts[@]}"; do
+        hosts+=("$h")
+        host_aliases+=("$current_alias")
+      done
+    fi
+    current_hosts=()
+    current_alias=""
+  }
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
+
+    if [[ "$line" =~ ^[[:space:]]*[Hh]ost[[:space:]]+(.+)$ ]]; then
+      finish_host_block
+      local host_list="${BASH_REMATCH[1]}"
+      read -r -a tokens <<<"$host_list"
+      for h in "${tokens[@]}"; do
+        if [[ "$h" == *"*"* || "$h" == *"?"* || "$h" == "!"* ]]; then
+          continue
+        fi
+        current_hosts+=("$h")
+      done
+      continue
+    fi
+
+    if ((${#current_hosts[@]} > 0)) && [[ "$line" =~ ^[[:space:]]*RemoteCommand[[:space:]]+(.*)$ ]]; then
+      local rc_val="${BASH_REMATCH[1]}"
+      current_alias=$(parse_remote_alias_from_rc "$rc_val")
+    fi
+  done <"$ssh_config_path"
+  finish_host_block
+
+  if ((${#hosts[@]} == 0)); then
+    echo "No Host entries found in $ssh_config_path."
+    return 1
+  fi
+
+  echo "Available SSH hosts:"
+  local i=1
+  for idx in "${!hosts[@]}"; do
+    local h="${hosts[$idx]}"
+    local ha="${host_aliases[$idx]}"
+    if [[ -n "$ha" ]]; then
+      echo "$((idx + 1))) $h -> $(highlight_text "$ha")"
+    else
+      echo "$((idx + 1))) $h"
+    fi
+    ((i++))
+  done
+
+  local choice
+  read -p "Select host number to bind: " choice
+  local valid_num_regex='^[0-9]+$'
+  if ! [[ $choice =~ $valid_num_regex ]] || ((choice < 1 || choice > ${#hosts[@]})); then
+    echo "Invalid selection."
+    return 1
+  fi
+
+  local selected_host="${hosts[$((choice - 1))]}"
+
+  # Detect existing RemoteCommand within the target Host block
+  local had_remote=0
+  local existing_remote=""
+  local existing_alias=""
+  {
+    local in_block=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if [[ "$line" =~ ^[[:space:]]*[Hh]ost[[:space:]]+(.+)$ ]]; then
+        in_block=0
+        local host_list="${BASH_REMATCH[1]}"
+        read -r -a tokens <<<"$host_list"
+        for h in "${tokens[@]}"; do
+          if [[ "$h" == "$selected_host" ]]; then
+            in_block=1
+            break
+          fi
+        done
+      elif [[ $in_block -eq 1 && "$line" =~ ^[[:space:]]*RemoteCommand[[:space:]]+(.*)$ ]]; then
+        had_remote=1
+        existing_remote="${BASH_REMATCH[1]}"
+        existing_alias=$(parse_remote_alias_from_rc "$existing_remote")
+        break
+      fi
+    done
+  } <"$ssh_config_path"
+
+  local action="overwrite"
+  if [[ $had_remote -eq 1 ]]; then
+    echo "Selected host already has RemoteCommand: $existing_remote"
+    read -p "Delete existing RemoteCommand or overwrite with gutemp alias? [d/o]: " rc_choice
+    if [[ "$rc_choice" =~ ^[Dd]$ ]]; then
+      action="delete"
+    elif [[ "$rc_choice" =~ ^[Oo]$ ]]; then
+      action="overwrite"
+    else
+      echo "No changes made."
+      return 1
+    fi
+  fi
+
+  if [[ $had_remote -eq 1 && $action == "delete" ]]; then
+    # No alias needed for delete path; perform rewrite without inserting and exit
+    remote_alias="${remote_alias:-$existing_alias}"
+  fi
+
+  if [[ $action == "overwrite" && -z "$remote_alias" ]]; then
+    read -p "Enter alias to map to host '$selected_host': " remote_alias
+    if [[ -z "$remote_alias" ]]; then
+      echo "Alias is required."
+      return 1
+    fi
+  fi
+
+  # Build RemoteCommand that safely checks for gutemp on remote
+  # Clear SSH_ORIGINAL_COMMAND so gutemp doesn't try to exec the RemoteCommand string
+  local remote_command_value="if command -v gutemp >/dev/null 2>&1; then env -u SSH_ORIGINAL_COMMAND gutemp $remote_alias; else echo 'gutemp not found on remote; skipping' >&2; fi; exec \$SHELL -l"
+
+  # Rewrite ssh config to insert/replace RemoteCommand and RequestTTY inside the target Host block
+  local tmp_cfg
+  tmp_cfg=$(mktemp) || {
+    echo "Failed to create temp file."
+    return 1
+  }
+
+  local in_target=0
+  local inserted=0
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^[[:space:]]*[Hh]ost[[:space:]]+(.+)$ ]]; then
+      # If we are leaving the target block without inserting, add now (only when overwriting)
+      if [[ $in_target -eq 1 && $inserted -eq 0 && "$action" == "overwrite" ]]; then
+        echo "  RemoteCommand $remote_command_value" >>"$tmp_cfg"
+        echo "  RequestTTY yes" >>"$tmp_cfg"
+        echo "" >>"$tmp_cfg"
+        inserted=1
+      fi
+
+      in_target=0
+      local host_list="${BASH_REMATCH[1]}"
+      read -r -a tokens <<<"$host_list"
+      for h in "${tokens[@]}"; do
+        if [[ "$h" == "$selected_host" ]]; then
+          in_target=1
+          break
+        fi
+      done
+
+      echo "$line" >>"$tmp_cfg"
+      continue
+    fi
+
+    if [[ $in_target -eq 1 ]]; then
+      # Skip existing RemoteCommand/RequestTTY to avoid duplicates or to delete
+      if [[ "$line" =~ ^[[:space:]]*RemoteCommand[[:space:]] ]]; then
+        continue
+      fi
+      if [[ "$line" =~ ^[[:space:]]*RequestTTY[[:space:]] ]]; then
+        continue
+      fi
+      # When overwriting, drop blank lines inside the block to keep insertion flush
+      if [[ "$action" == "overwrite" && (-z "$line" || "$line" =~ ^[[:space:]]*$) ]]; then
+        continue
+      fi
+    fi
+
+    echo "$line" >>"$tmp_cfg"
+  done <"$ssh_config_path"
+
+  # If file ended while still inside target host and we haven't inserted, append
+  if [[ $in_target -eq 1 && $inserted -eq 0 && "$action" == "overwrite" ]]; then
+    echo "  RemoteCommand $remote_command_value" >>"$tmp_cfg"
+    echo "  RequestTTY yes" >>"$tmp_cfg"
+    echo "" >>"$tmp_cfg"
+  fi
+
+  mv "$tmp_cfg" "$ssh_config_path"
+
+  local tmp_file
+  tmp_file=$(mktemp) || {
+    echo "Failed to create temp file."
+    return 1
+  }
+
+  # Remove any existing entries with same alias or host to avoid duplicates
+  awk -F'|' -v a="$remote_alias" -v h="$selected_host" '{ if($1!=a && $2!=h) print }' "$REMOTE_FILE" >"$tmp_file"
+  mv "$tmp_file" "$REMOTE_FILE"
+
+  if [[ "$action" == "overwrite" ]]; then
+    echo "$remote_alias|$selected_host|$ssh_config_path" >>"$REMOTE_FILE"
+    echo "Mapped remote alias '$remote_alias' to Host '$selected_host' (config: $ssh_config_path)."
+  else
+    echo "Removed existing RemoteCommand from Host '$selected_host'; no new mapping stored."
+  fi
+}
+
+config_command() {
+  local mode=""
+  local alias=""
+  local ssh_config_path=""
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+    -k | --auth-key)
+      mode="authkey"
+      shift
+      ;;
+    -r | --remote-host)
+      mode="remotehost"
+      shift
+      if [[ $# -gt 0 && "$1" != -* ]]; then
+        alias="$1"
+        shift
+      fi
+      ;;
+    -c | --config)
+      ssh_config_path="$2"
+      shift 2
+      ;;
+    -u | --user)
+      alias="$2"
+      shift 2
+      ;;
+    *)
+      if [[ -z "$alias" ]]; then
+        alias="$1"
+      fi
+      shift
+      ;;
+    esac
+  done
+
+  case "$mode" in
+  authkey)
+    config_auth_key "$alias"
+    ;;
+  remotehost)
+    config_remote_host "$alias" "$ssh_config_path"
+    ;;
+  *)
+    echo "Unsupported config command. Use: gu config -k [ALIAS] or gu config -r [ALIAS] [-c SSH_CONFIG]"
+    return 1
+    ;;
+  esac
+}
+
 show_user_info() {
   name=$(git config user.name)
   email=$(git config user.email)
@@ -277,10 +885,7 @@ add_user_profile() {
   local name="$2"
   local email="$3"
 
-  # Create config file if it doesn't exist
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    touch "$CONFIG_FILE"
-  fi
+  ensure_storage
 
   if grep -q "^$alias|" "$CONFIG_FILE" 2>/dev/null; then
     echo "Profile '$alias' already exists."
@@ -312,10 +917,7 @@ add_profile_interactive() {
     esac
   done
 
-  # Create config file if it doesn't exist
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    touch "$CONFIG_FILE"
-  fi
+  ensure_storage
 
   if [[ -n "$user_alias" ]]; then
     if grep -q "^$user_alias|" "$CONFIG_FILE" 2>/dev/null; then
@@ -336,10 +938,7 @@ add_profile_interactive() {
 
 # Function to list profiles and highlight the current user
 list_profiles() {
-  # Create config file if it doesn't exist
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    touch "$CONFIG_FILE"
-  fi
+  ensure_storage
 
   # Check if file is empty
   if [[ ! -s "$CONFIG_FILE" ]]; then
@@ -368,10 +967,7 @@ list_profiles() {
 delete_user_profile() {
   local user_alias=""
 
-  # Create config file if it doesn't exist
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    touch "$CONFIG_FILE"
-  fi
+  ensure_storage
 
   # Check if file is empty
   if [[ ! -s "$CONFIG_FILE" ]]; then
@@ -449,7 +1045,9 @@ show_help() {
   echo "  set [-g|--global] [-u|--user ALIAS | ALIAS]   Switch to an existing profile and apply it. If missing, optionally create."
   echo "  delete [-u|--user ALIAS | ALIAS]              Delete an existing user profile."
   echo "  update [-u|--user ALIAS | ALIAS]              Update profile alias/name/email in the config file (create on request)."
-  echo "  upgrade                                       Download and install the latest version of gu."
+  echo "  config -k|--auth-key [ALIAS]                  Bind an SSH authorized_key entry to a gu alias via forced command."
+  echo "  config -r|--remote-host [ALIAS] [-c PATH]     Map an SSH config Host to a gu remote alias (optional SSH config path)."
+  echo "  upgrade [-d|--develop]                        Download and install the latest version of gu (default main, -d uses develop)."
   echo "  help | -h | --help                            Show this help message and exit."
   echo "  version | -v | --version                      Show the current tool version."
   echo ""
@@ -463,8 +1061,10 @@ show_help() {
   echo "  gu set -g workuser                            Switch to 'workuser' profile globally."
   echo "  gu delete prev                                Delete the 'prev' user profile."
   echo "  gu update                                     Update an existing profile interactively."
-  echo "  gu update -u workuser                         Update the 'workuser' profile interact"
-  echo "  gu upgrade                                    Upgrade gu to the latest version."
+  echo "  gu update -u workuser                         Update the 'workuser' profile interactively."
+  echo "  gu config -k workuser                         Bind an SSH key to the 'workuser' gu alias."
+  echo "  gu config -r myremote -c ~/.ssh/config        Map SSH Host to remote alias 'myremote' using the given config file."
+  echo "  gu upgrade -d                                 Upgrade gu from the develop branch (omit -d for main)."
 }
 
 # Main program
@@ -494,11 +1094,16 @@ list)
   list_profiles
   ;;
 upgrade)
-  upgrade_gu
+  shift
+  upgrade_gu "$@"
   ;;
 update)
   shift
   update_user_info "$@"
+  ;;
+config)
+  shift
+  config_command "$@"
   ;;
 *)
   echo "Invalid command. Showing help:"

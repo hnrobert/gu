@@ -8,9 +8,13 @@
   },
   "prettier.tabWidth": 2,
   "cSpell.words": [
+    "authkey",
     "EOBODY",
     "esac",
+    "gutemp",
     "maxer",
+    "myremote",
+    "remotehost",
     "setaf",
     "workuser"
   ]
