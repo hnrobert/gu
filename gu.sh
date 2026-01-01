@@ -227,11 +227,17 @@ set_user_info() {
       local selected_profile=$(grep "^$user_alias|" "$CONFIG_FILE")
       IFS='|' read -r alias name email <<<"$selected_profile"
       if ((apply_git == 1)); then
-        git config --$scope user.name "$name"
-        git config --$scope user.email "$email"
+        if [[ "$scope" == "local" ]] && ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+          echo "Local scope requires running inside a git repository. Use --global or run inside a repo."
+          return 1
+        fi
+        if ! git config --$scope user.name "$name" || ! git config --$scope user.email "$email"; then
+          echo "Failed to apply git config for alias '$alias'."
+          return 1
+        fi
+        echo "Set to profile: Alias: $alias, Name: $name, Email: $email (Scope: $scope)"
       fi
       LAST_SELECTED_ALIAS="$alias"
-      echo "Set to profile: Alias: $alias, Name: $name, Email: $email (Scope: $scope)"
       return
     else
       echo "Profile '$user_alias' not found."
@@ -252,8 +258,16 @@ set_user_info() {
     read -p "Enter alias (default: $(default_alias_from_name "$name")): " alias
     alias=${alias:-$(default_alias_from_name "$name")}
 
-    git config --$scope user.name "$name"
-    git config --$scope user.email "$email"
+    if ((apply_git == 1)); then
+      if [[ "$scope" == "local" ]] && ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "Local scope requires running inside a git repository. Use --global or run inside a repo."
+        return 1
+      fi
+      if ! git config --$scope user.name "$name" || ! git config --$scope user.email "$email"; then
+        echo "Failed to apply git config for alias '$alias'."
+        return 1
+      fi
+    fi
     echo "User information set to Name: $name, Email: $email (Scope: $scope)"
 
     add_user_profile "$alias" "$name" "$email"
