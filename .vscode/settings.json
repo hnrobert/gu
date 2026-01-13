@@ -9,11 +9,15 @@
   "prettier.tabWidth": 2,
   "cSpell.words": [
     "authkey",
+    "behavior",
     "EOBODY",
     "esac",
     "gutemp",
+    "LASTEXITCODE",
     "maxer",
     "myremote",
+    "nsetlocal",
+    "pscustomobject",
     "remotehost",
     "setaf",
     "workuser"

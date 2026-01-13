@@ -22,6 +22,24 @@ curl -sSL https://raw.githubusercontent.com/hnrobert/gu/main/install.sh | bash
 > curl -sSL https://raw.githubusercontent.com/hnrobert/gu/develop/install.sh | bash -s -- -d
 > ```
 
+#### Windows (PowerShell)
+
+Download and run the PowerShell installer (recommended):
+
+```powershell
+irm https://raw.githubusercontent.com/hnrobert/gu/main/install.ps1 -OutFile install.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+> Install from the development branch:
+>
+> ```powershell
+> irm https://raw.githubusercontent.com/hnrobert/gu/develop/install.ps1 -OutFile install.ps1
+> powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+> ```
+
+After installation, it is recommended to restart your terminal (to apply PATH changes) and run `gu version`.
+
 ### Usage
 
 #### Commands (English)
@@ -62,6 +80,12 @@ gu upgrade               # self-update the tool
 - When using `gu config -r`, ensure `gu` is installed and the necessary aliases are configured on the remote host so the forced command works properly.
 - If you're connecting via a normal SSH terminal, either `gu config -k` (bind key) or `gu config -r` (remote config) will work.
 
+### Windows notes
+
+- `install.ps1` installs to `%LOCALAPPDATA%\gu\bin` by default, and creates `gu.cmd` / `gutemp.cmd` shims so you can run `gu` as a normal command.
+- Profiles are still stored in `$HOME\.gu\profiles`.
+- SSH forced-command bindings rely on OpenSSH on Windows. The `gu config -k` command edits `$HOME\.ssh\authorized_keys`.
+
 ### Contributors
 
 - Forked from: [YOUNGmaxer/git-user](https://github.com/YOUNGmaxer/git-user)
@@ -86,6 +110,24 @@ curl -sSL https://raw.githubusercontent.com/hnrobert/gu/main/install.sh | bash
 > ```bash
 > curl -sSL https://raw.githubusercontent.com/hnrobert/gu/develop/install.sh | bash -s -- -d
 > ```
+
+#### Windows（PowerShell）
+
+推荐下载后执行安装脚本：
+
+```powershell
+irm https://raw.githubusercontent.com/hnrobert/gu/main/install.ps1 -OutFile install.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+> 安装开发分支版本：
+>
+> ```powershell
+> irm https://raw.githubusercontent.com/hnrobert/gu/develop/install.ps1 -OutFile install.ps1
+> powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+> ```
+
+安装完成后建议重开一个终端（PATH 生效），然后运行 `gu version`。
 
 ### 使用
 
@@ -126,6 +168,12 @@ gu upgrade               # 升级工具
 - 如果通过 **VS Code 的 Remote-SSH** 使用 `gu`，可能需要在 VS Code 设置中启用 `remote.SSH.enableRemoteCommand`，并使用 `gu config -r` 来使强制命令绑定生效。
 - 使用 `gu config -r` 时，需要在被连接的远端主机上安装并配置好 `gu`，并创建好相应的 alias，才能让远端强制命令正常工作。
 - 如果是通过常规 SSH 终端直接连接，则 `gu config -k`（绑定密钥）和 `gu config -r`（远端配置）任意一个即可发挥作用。
+
+### Windows 注意事项
+
+- `install.ps1` 默认安装到 `%LOCALAPPDATA%\gu\bin`，并生成 `gu.cmd` / `gutemp.cmd`，方便像普通命令一样直接运行 `gu`。
+- 配置文件仍然存放在 `$HOME\.gu\profiles`。
+- SSH 强制命令绑定依赖 Windows 的 OpenSSH；`gu config -k` 会修改 `$HOME\.ssh\authorized_keys`。
 
 ### 贡献者名单
 
