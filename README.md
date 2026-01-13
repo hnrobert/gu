@@ -35,7 +35,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 >
 > ```powershell
 > irm https://raw.githubusercontent.com/hnrobert/gu/develop/install.ps1 -OutFile install.ps1
-> powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+> powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Develop
 > ```
 
 After installation, it is recommended to restart your terminal (to apply PATH changes) and run `gu version`.
@@ -124,7 +124,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 >
 > ```powershell
 > irm https://raw.githubusercontent.com/hnrobert/gu/develop/install.ps1 -OutFile install.ps1
-> powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+> powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Develop
 > ```
 
 安装完成后建议重开一个终端（PATH 生效），然后运行 `gu version`。
