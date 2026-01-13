@@ -83,6 +83,7 @@ gu upgrade               # self-update the tool
 ### Windows notes
 
 - `install.ps1` installs to `%LOCALAPPDATA%\gu\bin` by default, and creates `gu.cmd` / `gutemp.cmd` shims so you can run `gu` as a normal command.
+- PowerShell has a built-in alias `gu` (Get-Unique) that may shadow this tool. Use `gu.cmd ...`, or run `Remove-Item Alias:gu -Force` (add it to `$PROFILE` to persist).
 - Profiles are still stored in `$HOME\.gu\profiles`.
 - SSH forced-command bindings rely on OpenSSH on Windows. The `gu config -k` command edits `$HOME\.ssh\authorized_keys`.
 
@@ -172,6 +173,7 @@ gu upgrade               # 升级工具
 ### Windows 注意事项
 
 - `install.ps1` 默认安装到 `%LOCALAPPDATA%\gu\bin`，并生成 `gu.cmd` / `gutemp.cmd`，方便像普通命令一样直接运行 `gu`。
+- PowerShell 自带别名 `gu`（Get-Unique）可能会覆盖本工具。可以用 `gu.cmd ...`，或执行 `Remove-Item Alias:gu -Force`（写入 `$PROFILE` 可持久生效）。
 - 配置文件仍然存放在 `$HOME\.gu\profiles`。
 - SSH 强制命令绑定依赖 Windows 的 OpenSSH；`gu config -k` 会修改 `$HOME\.ssh\authorized_keys`。
 

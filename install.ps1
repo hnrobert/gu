@@ -14,7 +14,8 @@
 param(
   [switch]$Develop,
   [string]$InstallDir = '',
-  [switch]$NoPath
+  [switch]$NoPath,
+  [switch]$FixAlias
 )
 
 Set-StrictMode -Version Latest
@@ -121,7 +122,45 @@ try {
   }
 
   Write-Info 'Installation successful.'
-  Write-Info 'Try: gu version'
+
+  # PowerShell ships with an alias `gu` -> Get-Unique, which shadows our external `gu.cmd`.
+  $existingAlias = $null
+  try { $existingAlias = Get-Alias -Name 'gu' -ErrorAction Stop } catch { $existingAlias = $null }
+  if ($existingAlias) {
+    Write-Warn "PowerShell alias 'gu' is set to '$($existingAlias.Definition)' and will shadow this tool."
+    Write-Info "Use 'gu.cmd version' or run: Remove-Item Alias:gu -Force"
+
+    if ($FixAlias) {
+      try {
+        if (-not (Test-Path -LiteralPath $PROFILE)) {
+          $profileDir = Split-Path -Parent $PROFILE
+          if (-not (Test-Path -LiteralPath $profileDir)) {
+            New-Item -ItemType Directory -Path $profileDir | Out-Null
+          }
+          New-Item -ItemType File -Path $PROFILE | Out-Null
+        }
+
+        $fixLine = "Remove-Item Alias:gu -Force -ErrorAction SilentlyContinue"
+        $profileContent = Get-Content -LiteralPath $PROFILE -ErrorAction SilentlyContinue
+        if ($profileContent -notcontains $fixLine) {
+          Add-Content -LiteralPath $PROFILE -Value $fixLine
+          Write-Info "Added alias-fix to $PROFILE (reopen terminal to take effect)."
+        }
+        else {
+          Write-Info "Alias-fix already present in $PROFILE."
+        }
+      }
+      catch {
+        Write-Warn "Failed to update PowerShell profile: $($_.Exception.Message)"
+      }
+    }
+    else {
+      Write-Info "To persist this fix, re-run installer with -FixAlias, or add this line to your PowerShell profile ($PROFILE):"
+      Write-Info "  Remove-Item Alias:gu -Force -ErrorAction SilentlyContinue"
+    }
+  }
+
+  Write-Info 'Try: gu.cmd version'
 }
 catch {
   Write-Err $_.Exception.Message
