@@ -38,7 +38,8 @@ function Invoke-Download([string]$Url, [string]$OutFile) {
   $headers = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache'; 'Expires' = '0' }
   if ($PSVersionTable.PSVersion.Major -lt 6) {
     Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri $Url -OutFile $OutFile | Out-Null
-  } else {
+  }
+  else {
     Invoke-WebRequest -Headers $headers -Uri $Url -OutFile $OutFile | Out-Null
   }
 }
@@ -73,10 +74,15 @@ try {
   $shimGu = Join-Path $InstallDir 'gu.cmd'
   $shimGutemp = Join-Path $InstallDir 'gutemp.cmd'
 
-  $shimHeader = "@echo off`r`nsetlocal`r`n"
-  $pwshCheck = "where pwsh >nul 2>nul`r`nif %ERRORLEVEL%==0 (" +
-    "`r`n  pwsh -NoProfile -ExecutionPolicy Bypass -File \"%~dp0{0}\" %*`r`n) else (" +
-    "`r`n  powershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0{0}\" %*`r`n)`r`n"
+  # Use single-quoted PS strings so CMD variables like %~dp0 and %* are not parsed by PowerShell.
+  $shimHeader = '@echo off' + "`r`n" + 'setlocal' + "`r`n"
+  $pwshCheck =
+  'where pwsh >nul 2>nul' + "`r`n" +
+  'if %ERRORLEVEL%==0 (' + "`r`n" +
+  '  pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0{0}" %*' + "`r`n" +
+  ') else (' + "`r`n" +
+  '  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0{0}" %*' + "`r`n" +
+  ')' + "`r`n"
 
   [System.IO.File]::WriteAllText($shimGu, ($shimHeader + ($pwshCheck -f 'gu.ps1')), (New-Object System.Text.UTF8Encoding($false)))
   [System.IO.File]::WriteAllText($shimGutemp, ($shimHeader + ($pwshCheck -f 'gutemp.ps1')), (New-Object System.Text.UTF8Encoding($false)))
@@ -109,13 +115,15 @@ try {
     if ($env:Path -notlike "*$InstallDir*") {
       $env:Path = "$InstallDir;$env:Path"
     }
-  } else {
+  }
+  else {
     Write-Warn 'Skipping PATH modification (-NoPath).'
   }
 
   Write-Info 'Installation successful.'
   Write-Info 'Try: gu version'
-} catch {
+}
+catch {
   Write-Err $_.Exception.Message
   exit 1
 }
